@@ -17,14 +17,14 @@ const ACTION_VERBS = [
   'check', 'verify', 'validate', 'test', 'investigate', 'analyze',
 ];
 
-// Deadline patterns
-const DEADLINE_PATTERNS = [
-  /by (eod|end of day|today|tomorrow|this week|next week)/i,
-  /by (\w+ \d+)/i, // "by Feb 15"
-  /due (today|tomorrow|this week|next week)/i,
-  /deadline: (\w+ \d+)/i,
-  /before (\d+:\d+ [ap]m)/i,
-];
+// Deadline patterns (for future use)
+// const DEADLINE_PATTERNS = [
+//   /by (eod|end of day|today|tomorrow|this week|next week)/i,
+//   /by (\w+ \d+)/i, // "by Feb 15"
+//   /due (today|tomorrow|this week|next week)/i,
+//   /deadline: (\w+ \d+)/i,
+//   /before (\d+:\d+ [ap]m)/i,
+// ];
 
 /**
  * Extract deadline from text
@@ -75,7 +75,7 @@ export const extractActionsFromTeams = (message: TeamsMessage): ActionItem[] => 
   
   if (!message.hasActionItems) return actions;
 
-  const contentLower = message.content.toLowerCase();
+  // const contentLower = message.content.toLowerCase();
   const sentences = message.content.split(/[.!?]\s+/);
 
   sentences.forEach(sentence => {

@@ -4,7 +4,7 @@
  */
 
 import { PriorityScore } from '../types';
-import type { TeamsMessage, OutlookEmail, WhatsAppMessage, GmailEmail, CalendarEvent } from '../services/syntheticData';
+import type { TeamsMessage, OutlookEmail, WhatsAppMessage, CalendarEvent } from '../services/syntheticData';
 
 // VIP senders who should be prioritized
 const VIP_SENDERS = [
