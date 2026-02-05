@@ -135,13 +135,19 @@ export async function generateCEOResponse(
   }
   
   try {
+    console.log('🚀 Initializing Claude Sonnet 4.5...');
+    console.log('📊 Context size:', contextPrompt.length, 'characters');
+    
     const anthropic = new Anthropic({
       apiKey: apiKey,
       dangerouslyAllowBrowser: true, // Required for browser/Vite environments
     });
 
+    console.log('📡 Sending request to Claude API...');
+    const startTime = Date.now();
+
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-20250514',
       max_tokens: 4000,
       temperature: 0.7,
       system: CEO_SYSTEM_PROMPT,
@@ -153,6 +159,9 @@ export async function generateCEOResponse(
       ],
     });
 
+    const elapsed = Date.now() - startTime;
+    console.log(`✅ Response received in ${elapsed}ms`);
+
     return {
       id: `msg-${Date.now()}`,
       role: 'assistant',
@@ -163,11 +172,16 @@ export async function generateCEOResponse(
       },
     };
   } catch (error) {
-    console.error('CEO AI Service Error:', error);
+    console.error('❌ CEO AI Service Error:', error);
+    console.error('Error details:', {
+      message: error instanceof Error ? error.message : 'Unknown',
+      type: error instanceof Error ? error.constructor.name : typeof error,
+    });
+    
     return {
       id: `msg-${Date.now()}`,
       role: 'assistant',
-      content: `Error connecting to Claude AI: ${error instanceof Error ? error.message : 'Unknown error'}. Please check your API key in the .env file.`,
+      content: `Error connecting to Claude AI: ${error instanceof Error ? error.message : JSON.stringify(error)}\n\nTroubleshooting:\n1. Check browser console (F12) for detailed error\n2. Verify .env file has correct API key\n3. Restart dev server (Ctrl+C then npm run dev)\n4. Check Anthropic API status: https://status.anthropic.com`,
       timestamp: new Date(),
     };
   }
