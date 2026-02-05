@@ -19,9 +19,6 @@ import {
   syntheticCalendarEvents,
   TeamsMessage,
   OutlookEmail,
-  WhatsAppMessage,
-  GmailEmail,
-  CalendarEvent,
 } from './syntheticData';
 import {
   scoreTeamsMessage,
@@ -99,7 +96,7 @@ const findMessageById = (id: string): any => {
 /**
  * Convert message to Priority object
  */
-const messageToPriority = (message: any, score: PriorityScore, index: number): Priority => {
+const messageToPriority = (message: any, _score: PriorityScore, index: number): Priority => {
   if (!message) {
     return {
       id: `priority-${index}`,

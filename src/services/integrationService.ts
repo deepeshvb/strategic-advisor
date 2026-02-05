@@ -38,10 +38,8 @@ export interface IntegrationData {
 
 // Gmail Integration
 export class GmailIntegration {
-  private _config: IntegrationConfig;
-
-  constructor(config: IntegrationConfig) {
-    this._config = config;
+  constructor(_config: IntegrationConfig) {
+    // Config stored for future use when implementing real Gmail API
   }
 
   async connect(): Promise<boolean> {
@@ -72,10 +70,8 @@ export class GmailIntegration {
 
 // Microsoft Teams Integration
 export class TeamsIntegration {
-  private _config: IntegrationConfig;
-
-  constructor(config: IntegrationConfig) {
-    this._config = config;
+  constructor(_config: IntegrationConfig) {
+    // Config stored for future use when implementing real Teams API
   }
 
   async connect(): Promise<boolean> {
@@ -104,10 +100,8 @@ export class TeamsIntegration {
 
 // Slack Integration
 export class SlackIntegration {
-  private _config: IntegrationConfig;
-
-  constructor(config: IntegrationConfig) {
-    this._config = config;
+  constructor(_config: IntegrationConfig) {
+    // Config stored for future use when implementing real Slack API
   }
 
   async connect(): Promise<boolean> {
@@ -136,10 +130,8 @@ export class SlackIntegration {
 
 // Calendar Integration (Google/Outlook)
 export class CalendarIntegration {
-  private _config: IntegrationConfig;
-
-  constructor(config: IntegrationConfig) {
-    this._config = config;
+  constructor(_config: IntegrationConfig) {
+    // Config stored for future use when implementing real Calendar API
   }
 
   async connect(): Promise<boolean> {
@@ -160,10 +152,8 @@ export class CalendarIntegration {
 
 // Discord Integration
 export class DiscordIntegration {
-  private _config: IntegrationConfig;
-
-  constructor(config: IntegrationConfig) {
-    this._config = config;
+  constructor(_config: IntegrationConfig) {
+    // Config stored for future use when implementing real Discord API
   }
 
   async connect(): Promise<boolean> {
@@ -185,10 +175,8 @@ export class DiscordIntegration {
 
 // Jira Integration
 export class JiraIntegration {
-  private _config: IntegrationConfig;
-
-  constructor(config: IntegrationConfig) {
-    this._config = config;
+  constructor(_config: IntegrationConfig) {
+    // Config stored for future use when implementing real Jira API
   }
 
   async connect(): Promise<boolean> {
@@ -204,10 +192,8 @@ export class JiraIntegration {
 
 // GitHub Integration
 export class GitHubIntegration {
-  private _config: IntegrationConfig;
-
-  constructor(config: IntegrationConfig) {
-    this._config = config;
+  constructor(_config: IntegrationConfig) {
+    // Config stored for future use when implementing real GitHub API
   }
 
   async connect(): Promise<boolean> {

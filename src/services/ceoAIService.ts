@@ -144,7 +144,6 @@ export async function generateCEOResponse(
       content: message.content[0].type === 'text' ? message.content[0].text : 'No response',
       timestamp: new Date(),
       metadata: {
-        model: 'claude-3-5-sonnet',
         sources: ['Teams', 'Email', 'Calendar'],
       },
     };
