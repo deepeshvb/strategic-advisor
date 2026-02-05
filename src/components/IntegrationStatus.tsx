@@ -1,4 +1,4 @@
-import { CheckCircle2, XCircle, AlertCircle, Settings } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Settings } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { realDataService } from '../services/realDataService';
 

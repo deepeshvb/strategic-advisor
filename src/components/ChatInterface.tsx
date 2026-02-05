@@ -24,15 +24,14 @@ export default function ChatInterface({ context: _context }: ChatInterfaceProps)
   const [isListening, setIsListening] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [useRealData, setUseRealData] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const synthesisRef = useRef<SpeechSynthesis | null>(null);
+  const useRealDataRef = useRef(false);
 
   // Check if real data is available on mount
   useEffect(() => {
-    const hasReal = realDataService.hasConfiguredIntegrations();
-    setUseRealData(hasReal);
+    useRealDataRef.current = realDataService.hasConfiguredIntegrations();
   }, []);
 
   const scrollToBottom = () => {
