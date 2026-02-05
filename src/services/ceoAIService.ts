@@ -120,9 +120,23 @@ export async function generateCEOResponse(
   // Format all communication context
   const contextPrompt = formatContextForLLM(context);
   
+  // Validate API key
+  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+  
+  if (!apiKey) {
+    console.error('VITE_ANTHROPIC_API_KEY is not set in environment variables');
+    console.error('Available env vars:', Object.keys(import.meta.env));
+    return {
+      id: `msg-${Date.now()}`,
+      role: 'assistant',
+      content: 'Configuration Error: VITE_ANTHROPIC_API_KEY not found in .env file.\n\nPlease ensure:\n1. .env file exists in the root directory\n2. Contains: VITE_ANTHROPIC_API_KEY=sk-ant-...\n3. Restart the dev server after adding the key (Ctrl+C then npm run dev)',
+      timestamp: new Date(),
+    };
+  }
+  
   try {
     const anthropic = new Anthropic({
-      apiKey: import.meta.env.VITE_ANTHROPIC_API_KEY,
+      apiKey: apiKey,
       dangerouslyAllowBrowser: true, // Required for browser/Vite environments
     });
 
