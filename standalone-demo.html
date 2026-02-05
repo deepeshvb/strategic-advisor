@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Strategic Coworker - Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: Inter, system-ui, -apple-system, sans-serif;
+            background: #0f172a;
+            color: white;
+        }
+        .gradient-bg {
+            background: linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%);
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="flex h-screen">
+        <!-- Sidebar -->
+        <div class="w-64 bg-slate-800 border-r border-slate-700 flex flex-col">
+            <!-- Logo -->
+            <div class="p-6 border-b border-slate-700">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 gradient-bg rounded-lg flex items-center justify-center">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 class="text-white font-bold text-lg">Strategic</h1>
+                        <p class="text-gray-400 text-xs">Coworker</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Navigation -->
+            <nav class="flex-1 p-4">
+                <div class="space-y-2">
+                    <button onclick="showView('chat')" id="nav-chat" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-blue-600 text-white">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                        </svg>
+                        <span class="font-medium">Chat</span>
+                    </button>
+                    <button onclick="showView('dashboard')" id="nav-dashboard" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:bg-slate-700 hover:text-white">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 16a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-3zM14 13a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1h-4a1 1 0 01-1-1v-7z"></path>
+                        </svg>
+                        <span class="font-medium">Dashboard</span>
+                    </button>
+                    <button onclick="showView('settings')" id="nav-settings" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded-lg text-gray-400 hover:bg-slate-700 hover:text-white">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                        <span class="font-medium">Settings</span>
+                    </button>
+                </div>
+            </nav>
+
+            <!-- Stats -->
+            <div class="p-4 border-t border-slate-700">
+                <div class="bg-slate-700 rounded-lg p-4">
+                    <h3 class="text-white font-medium mb-3">Quick Stats</h3>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Active Channels</span>
+                            <span class="text-white font-medium">3</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Open Priorities</span>
+                            <span class="text-white font-medium">5</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Urgent Items</span>
+                            <span class="text-red-400 font-medium">1</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="flex-1 flex flex-col" id="main-content">
+            <!-- Chat View -->
+            <div id="chat-view" class="flex flex-col h-full">
+                <div class="flex-1 overflow-y-auto p-4 space-y-4">
+                    <div class="flex justify-start">
+                        <div class="max-w-[80%] rounded-lg p-4 bg-slate-700 text-gray-100">
+                            <div>Hello! I'm your strategic coworker. I've been monitoring your communication channels and I'm ready to help you prioritize your day. What would you like to know?</div>
+                            <div class="text-xs opacity-70 mt-2 pt-2 border-t border-gray-600">10:30</div>
+                        </div>
+                    </div>
+                    <div id="chat-messages"></div>
+                </div>
+                <div class="border-t border-slate-700 p-4">
+                    <div class="flex items-center gap-2 mb-3">
+                        <button onclick="toggleVoiceInput()" id="voice-btn" class="p-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-gray-300 transition-colors" title="Voice input">
+                            <svg id="mic-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+                            </svg>
+                        </button>
+                        <button onclick="toggleAudio()" id="audio-btn" class="p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors" title="Audio enabled">
+                            <svg id="audio-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path>
+                            </svg>
+                        </button>
+                        <span id="status-text" class="text-sm text-gray-400"></span>
+                    </div>
+                    <div class="flex gap-2">
+                        <input type="text" id="chat-input" placeholder="Ask about priorities, meetings, emails... (or use voice)" class="flex-1 bg-slate-700 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <button onclick="sendMessage()" class="bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-6 py-3">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="mt-2 flex gap-2 flex-wrap">
+                        <button onclick="quickAsk('What are my priorities today?')" class="text-xs px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-gray-300 rounded-full">Show priorities</button>
+                        <button onclick="quickAsk('Summarize my unread emails')" class="text-xs px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-gray-300 rounded-full">Email summary</button>
+                        <button onclick="quickAsk('What should I focus on next?')" class="text-xs px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-gray-300 rounded-full">Focus recommendation</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard View -->
+            <div id="dashboard-view" class="hidden h-full overflow-y-auto p-6 space-y-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-white mb-2">Dashboard</h2>
+                    <p class="text-gray-400">Overview of your communication channels and priorities</p>
+                </div>
+
+                <div>
+                    <h3 class="text-lg font-semibold text-white mb-3">Connected Channels</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="bg-slate-800 rounded-lg p-4 border border-slate-700">
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="flex items-center gap-3">
+                                    <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                                    </svg>
+                                    <div>
+                                        <h4 class="text-white font-medium">Work Email</h4>
+                                        <p class="text-sm text-gray-400">Email</p>
+                                    </div>
+                                </div>
+                                <span class="px-2 py-1 rounded text-xs bg-green-500 bg-opacity-20 text-green-400">Connected</span>
+                            </div>
+                            <div class="text-sm text-gray-400">Last sync: 5 minutes ago</div>
+                            <span class="mt-2 inline-block px-2 py-0.5 bg-blue-600 text-white rounded-full text-xs">12 unread</span>
+                        </div>
+                        <div class="bg-slate-800 rounded-lg p-4 border border-slate-700">
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="flex items-center gap-3">
+                                    <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                                    </svg>
+                                    <div>
+                                        <h4 class="text-white font-medium">Microsoft Teams</h4>
+                                        <p class="text-sm text-gray-400">Teams</p>
+                                    </div>
+                                </div>
+                                <span class="px-2 py-1 rounded text-xs bg-green-500 bg-opacity-20 text-green-400">Connected</span>
+                            </div>
+                            <div class="text-sm text-gray-400">Last sync: 2 minutes ago</div>
+                            <span class="mt-2 inline-block px-2 py-0.5 bg-blue-600 text-white rounded-full text-xs">5 unread</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 class="text-lg font-semibold text-white mb-3">Your Priorities</h3>
+                    <div class="space-y-3">
+                        <div class="rounded-lg p-4 border-l-4 border-red-500 bg-red-500 bg-opacity-10">
+                            <div class="flex items-start gap-3">
+                                <input type="checkbox" class="mt-1 w-5 h-5 rounded border-2 border-gray-500">
+                                <div class="flex-1">
+                                    <div class="flex items-start justify-between mb-2">
+                                        <h4 class="text-white font-medium">Q1 Budget Review Meeting</h4>
+                                        <span class="px-2 py-0.5 rounded text-xs bg-red-500 text-white uppercase">Urgent</span>
+                                    </div>
+                                    <p class="text-sm text-gray-400 mb-2">Sarah from Finance requested your input on Q1 budget allocation. Meeting scheduled for today at 2 PM.</p>
+                                    <div class="text-xs text-gray-500">Source: Teams • Due: Today, 14:00</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="rounded-lg p-4 border-l-4 border-orange-500 bg-orange-500 bg-opacity-10">
+                            <div class="flex items-start gap-3">
+                                <input type="checkbox" class="mt-1 w-5 h-5 rounded border-2 border-gray-500">
+                                <div class="flex-1">
+                                    <div class="flex items-start justify-between mb-2">
+                                        <h4 class="text-white font-medium">Client Proposal Response</h4>
+                                        <span class="px-2 py-0.5 rounded text-xs bg-orange-500 text-white uppercase">High</span>
+                                    </div>
+                                    <p class="text-sm text-gray-400 mb-2">Acme Corp is waiting for your proposal review. They mentioned timeline sensitivity in their last email.</p>
+                                    <div class="text-xs text-gray-500">Source: Email • Due: Tomorrow</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings View -->
+            <div id="settings-view" class="hidden h-full overflow-y-auto p-6 space-y-6">
+                <div>
+                    <h2 class="text-2xl font-bold text-white mb-2">Settings</h2>
+                    <p class="text-gray-400">Manage your communication channels and preferences</p>
+                </div>
+
+                <div>
+                    <h3 class="text-lg font-semibold text-white mb-4">Active Channels</h3>
+                    <div class="space-y-3">
+                        <div class="bg-slate-800 rounded-lg p-4 border border-slate-700 flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                                </svg>
+                                <div>
+                                    <h4 class="text-white font-medium">Work Email</h4>
+                                    <p class="text-sm text-gray-400">Email</p>
+                                </div>
+                            </div>
+                            <button class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-medium">Disconnect</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 class="text-lg font-semibold text-white mb-4">AI Assistant Settings</h3>
+                    <div class="bg-slate-800 rounded-lg p-4 border border-slate-700 space-y-4">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h4 class="text-white font-medium">Priority Detection</h4>
+                                <p class="text-sm text-gray-400">Automatically identify urgent items</p>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" checked class="sr-only peer">
+                                <div class="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Voice and Audio state
+        let recognition = null;
+        let isListening = false;
+        let audioEnabled = true;
+        let isSpeaking = false;
+
+        // Initialize speech recognition
+        if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                document.getElementById('chat-input').value = transcript;
+                isListening = false;
+                updateVoiceUI();
+            };
+
+            recognition.onerror = () => {
+                isListening = false;
+                updateVoiceUI();
+            };
+
+            recognition.onend = () => {
+                isListening = false;
+                updateVoiceUI();
+            };
+        }
+
+        function toggleVoiceInput() {
+            if (!recognition) {
+                alert('Speech recognition is not supported in your browser. Please use Chrome, Edge, or Safari.');
+                return;
+            }
+
+            if (isListening) {
+                recognition.stop();
+                isListening = false;
+            } else {
+                recognition.start();
+                isListening = true;
+            }
+            updateVoiceUI();
+        }
+
+        function toggleAudio() {
+            audioEnabled = !audioEnabled;
+            if (!audioEnabled && isSpeaking) {
+                window.speechSynthesis.cancel();
+                isSpeaking = false;
+            }
+            updateAudioUI();
+        }
+
+        function updateVoiceUI() {
+            const btn = document.getElementById('voice-btn');
+            const statusText = document.getElementById('status-text');
+            
+            if (isListening) {
+                btn.className = 'p-2 rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors animate-pulse';
+                statusText.textContent = '🎤 Listening...';
+                statusText.className = 'text-sm text-red-400 animate-pulse';
+            } else {
+                btn.className = 'p-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-gray-300 transition-colors';
+                if (!isSpeaking) {
+                    statusText.textContent = '';
+                }
+            }
+        }
+
+        function updateAudioUI() {
+            const btn = document.getElementById('audio-btn');
+            const icon = document.getElementById('audio-icon');
+            
+            if (audioEnabled) {
+                btn.className = 'p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors';
+                icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path>';
+            } else {
+                btn.className = 'p-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-gray-300 transition-colors';
+                icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"></path>';
+            }
+        }
+
+        function speak(text) {
+            if (!audioEnabled || !('speechSynthesis' in window)) return;
+
+            window.speechSynthesis.cancel();
+            
+            const cleanText = text
+                .replace(/<br>/g, '. ')
+                .replace(/<[^>]*>/g, '')
+                .replace(/🔴|🟠|🟡|🟢|📧|💬|📊|✅|📅|💡|•/g, '');
+
+            const utterance = new SpeechSynthesisUtterance(cleanText);
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            utterance.volume = 1.0;
+
+            utterance.onstart = () => {
+                isSpeaking = true;
+                document.getElementById('status-text').textContent = '🔊 Speaking...';
+                document.getElementById('status-text').className = 'text-sm text-blue-400';
+            };
+
+            utterance.onend = () => {
+                isSpeaking = false;
+                document.getElementById('status-text').textContent = '';
+            };
+
+            utterance.onerror = () => {
+                isSpeaking = false;
+                document.getElementById('status-text').textContent = '';
+            };
+
+            window.speechSynthesis.speak(utterance);
+        }
+
+        function showView(view) {
+            document.getElementById('chat-view').classList.add('hidden');
+            document.getElementById('dashboard-view').classList.add('hidden');
+            document.getElementById('settings-view').classList.add('hidden');
+            document.getElementById(view + '-view').classList.remove('hidden');
+
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('bg-blue-600', 'text-white');
+                btn.classList.add('text-gray-400', 'hover:bg-slate-700', 'hover:text-white');
+            });
+            document.getElementById('nav-' + view).classList.add('bg-blue-600', 'text-white');
+            document.getElementById('nav-' + view).classList.remove('text-gray-400', 'hover:bg-slate-700', 'hover:text-white');
+        }
+
+        function quickAsk(message) {
+            document.getElementById('chat-input').value = message;
+            sendMessage();
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const message = input.value.trim();
+            if (!message) return;
+
+            const messagesDiv = document.getElementById('chat-messages');
+            const now = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+            // User message
+            messagesDiv.innerHTML += `
+                <div class="flex justify-end">
+                    <div class="max-w-[80%] rounded-lg p-4 bg-blue-600 text-white">
+                        <div>${message}</div>
+                        <div class="text-xs opacity-70 mt-2 pt-2 border-t border-blue-500">${now}</div>
+                    </div>
+                </div>
+            `;
+
+            input.value = '';
+
+            // AI response
+            setTimeout(() => {
+                const response = generateResponse(message);
+                messagesDiv.innerHTML += `
+                    <div class="flex justify-start">
+                        <div class="max-w-[80%] rounded-lg p-4 bg-slate-700 text-gray-100">
+                            <div>${response}</div>
+                            <div class="text-xs opacity-70 mt-2 pt-2 border-t border-gray-600">${now}</div>
+                        </div>
+                    </div>
+                `;
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                
+                // Speak the response
+                if (audioEnabled) {
+                    speak(response);
+                }
+            }, 1000);
+        }
+
+        function generateResponse(message) {
+            const lower = message.toLowerCase();
+            if (lower.includes('priority') || lower.includes('urgent')) {
+                return "Based on your channels, here are your top priorities:<br><br>🔴 <strong>URGENT</strong>: Q1 Budget Review Meeting at 2 PM<br>🟠 <strong>HIGH</strong>: Client proposal for Acme Corp (due tomorrow)<br>🟠 <strong>HIGH</strong>: Code review for authentication module";
+            } else if (lower.includes('email')) {
+                return "You have 12 unread emails. Most important:<br><br>📧 From Sarah Chen: 'Budget Review - Need Your Input'<br>📧 From Acme Corp: 'Re: Proposal Timeline'<br>📧 From Marketing: 'Q4 Metrics Request'";
+            } else if (lower.includes('focus')) {
+                return "I recommend this order:<br><br>1. Prepare for Q1 Budget Review (2 PM today)<br>2. Review Acme Corp proposal<br>3. Complete code review<br>4. Handle other emails";
+            }
+            return "I'm monitoring your communication channels. You have:<br>• 1 urgent priority<br>• 12 unread emails<br>• 5 Teams messages<br>• 4 meetings today<br><br>What would you like to know more about?";
+        }
+
+        document.getElementById('chat-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') sendMessage();
+        });
+    </script>
+</body>
+</html>
