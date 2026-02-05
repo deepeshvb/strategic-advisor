@@ -123,6 +123,7 @@ export async function generateCEOResponse(
   try {
     const anthropic = new Anthropic({
       apiKey: import.meta.env.VITE_ANTHROPIC_API_KEY,
+      dangerouslyAllowBrowser: true, // Required for browser/Vite environments
     });
 
     const message = await anthropic.messages.create({
