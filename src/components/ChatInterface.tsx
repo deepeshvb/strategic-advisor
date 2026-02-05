@@ -9,6 +9,8 @@ import {
   syntheticOutlookEmails,
   syntheticCalendarEvents,
 } from '../services/syntheticData';
+import { realDataService } from '../services/realDataService';
+import IntegrationStatus from './IntegrationStatus';
 import { format } from 'date-fns';
 
 interface ChatInterfaceProps {
@@ -22,9 +24,16 @@ export default function ChatInterface({ context: _context }: ChatInterfaceProps)
   const [isListening, setIsListening] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [useRealData, setUseRealData] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const synthesisRef = useRef<SpeechSynthesis | null>(null);
+
+  // Check if real data is available on mount
+  useEffect(() => {
+    const hasReal = realDataService.hasConfiguredIntegrations();
+    setUseRealData(hasReal);
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

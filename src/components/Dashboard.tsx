@@ -3,6 +3,7 @@ import { Priority, Insight, Channel } from '../types';
 import { format, formatDistanceToNow } from 'date-fns';
 import { getSyntheticDataStats } from '../services/syntheticData';
 import { extractAllActionItems, detectPatterns } from '../services/aiEngine';
+import IntegrationStatus from './IntegrationStatus';
 
 interface DashboardProps {
   channels: Channel[];
