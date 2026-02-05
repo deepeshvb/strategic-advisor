@@ -318,17 +318,20 @@ export default function ChatInterface({ context: _context }: ChatInterfaceProps)
   return (
     <div className="flex flex-col h-full">
       {/* Header with Daily Briefing Button */}
-      <div className="border-b border-slate-700 p-3 flex justify-between items-center">
-        <h2 className="text-lg font-semibold text-gray-200">Strategic Coworker AI</h2>
-        <button
-          onClick={loadDailyBriefing}
-          disabled={isLoading}
-          className="flex items-center gap-2 px-3 py-1.5 bg-primary-600 hover:bg-primary-700 disabled:bg-slate-600 text-white text-sm rounded-lg transition-colors"
-          title="Regenerate daily briefing"
-        >
-          <Sparkles className="w-4 h-4" />
-          Daily Briefing
-        </button>
+      <div className="border-b border-slate-700 p-3">
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="text-lg font-semibold text-gray-200">Strategic Coworker AI</h2>
+          <button
+            onClick={loadDailyBriefing}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-3 py-1.5 bg-primary-600 hover:bg-primary-700 disabled:bg-slate-600 text-white text-sm rounded-lg transition-colors"
+            title="Regenerate daily briefing"
+          >
+            <Sparkles className="w-4 h-4" />
+            Daily Briefing
+          </button>
+        </div>
+        <IntegrationStatus />
       </div>
       
       {/* Messages */}

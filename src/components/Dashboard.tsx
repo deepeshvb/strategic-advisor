@@ -84,6 +84,9 @@ export default function Dashboard({ channels, priorities, insights, onPriorityTo
         <p className="text-gray-400">Real-time overview of your communication channels and strategic priorities</p>
       </div>
 
+      {/* Integration Status */}
+      <IntegrationStatus />
+
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-lg p-4 text-white">
