@@ -38,10 +38,10 @@ export interface IntegrationData {
 
 // Gmail Integration
 export class GmailIntegration {
-  private config: IntegrationConfig;
+  private _config: IntegrationConfig;
 
   constructor(config: IntegrationConfig) {
-    this.config = config;
+    this._config = config;
   }
 
   async connect(): Promise<boolean> {
@@ -51,7 +51,7 @@ export class GmailIntegration {
     return true;
   }
 
-  async fetchMessages(limit: number = 50): Promise<IntegrationData> {
+  async fetchMessages(_limit: number = 50): Promise<IntegrationData> {
     // Fetch emails using Gmail API
     console.log('Fetching Gmail messages...');
     // In production: Call Gmail API with proper authentication
@@ -72,10 +72,10 @@ export class GmailIntegration {
 
 // Microsoft Teams Integration
 export class TeamsIntegration {
-  private config: IntegrationConfig;
+  private _config: IntegrationConfig;
 
   constructor(config: IntegrationConfig) {
-    this.config = config;
+    this._config = config;
   }
 
   async connect(): Promise<boolean> {
@@ -84,7 +84,7 @@ export class TeamsIntegration {
     return true;
   }
 
-  async fetchMessages(limit: number = 50): Promise<IntegrationData> {
+  async fetchMessages(_limit: number = 50): Promise<IntegrationData> {
     // Fetch Teams messages using Microsoft Graph API
     console.log('Fetching Teams messages...');
     return {
@@ -96,7 +96,7 @@ export class TeamsIntegration {
     };
   }
 
-  async sendMessage(channelId: string, message: string): Promise<boolean> {
+  async sendMessage(channelId: string, _message: string): Promise<boolean> {
     console.log(`Sending message to channel ${channelId}`);
     return true;
   }
@@ -104,10 +104,10 @@ export class TeamsIntegration {
 
 // Slack Integration
 export class SlackIntegration {
-  private config: IntegrationConfig;
+  private _config: IntegrationConfig;
 
   constructor(config: IntegrationConfig) {
-    this.config = config;
+    this._config = config;
   }
 
   async connect(): Promise<boolean> {
@@ -116,7 +116,7 @@ export class SlackIntegration {
     return true;
   }
 
-  async fetchMessages(limit: number = 50): Promise<IntegrationData> {
+  async fetchMessages(_limit: number = 50): Promise<IntegrationData> {
     // Fetch Slack messages using Slack Web API
     console.log('Fetching Slack messages...');
     return {
@@ -128,7 +128,7 @@ export class SlackIntegration {
     };
   }
 
-  async postMessage(channel: string, message: string): Promise<boolean> {
+  async postMessage(channel: string, _message: string): Promise<boolean> {
     console.log(`Posting to Slack channel ${channel}`);
     return true;
   }
@@ -136,10 +136,10 @@ export class SlackIntegration {
 
 // Calendar Integration (Google/Outlook)
 export class CalendarIntegration {
-  private config: IntegrationConfig;
+  private _config: IntegrationConfig;
 
   constructor(config: IntegrationConfig) {
-    this.config = config;
+    this._config = config;
   }
 
   async connect(): Promise<boolean> {
@@ -152,7 +152,7 @@ export class CalendarIntegration {
     return [];
   }
 
-  async createEvent(event: any): Promise<boolean> {
+  async createEvent(_event: any): Promise<boolean> {
     console.log('Creating calendar event');
     return true;
   }
@@ -160,10 +160,10 @@ export class CalendarIntegration {
 
 // Discord Integration
 export class DiscordIntegration {
-  private config: IntegrationConfig;
+  private _config: IntegrationConfig;
 
   constructor(config: IntegrationConfig) {
-    this.config = config;
+    this._config = config;
   }
 
   async connect(): Promise<boolean> {
@@ -171,7 +171,7 @@ export class DiscordIntegration {
     return true;
   }
 
-  async fetchMessages(limit: number = 50): Promise<IntegrationData> {
+  async fetchMessages(_limit: number = 50): Promise<IntegrationData> {
     console.log('Fetching Discord messages...');
     return {
       channelId: 'discord-1',
@@ -185,10 +185,10 @@ export class DiscordIntegration {
 
 // Jira Integration
 export class JiraIntegration {
-  private config: IntegrationConfig;
+  private _config: IntegrationConfig;
 
   constructor(config: IntegrationConfig) {
-    this.config = config;
+    this._config = config;
   }
 
   async connect(): Promise<boolean> {
@@ -196,7 +196,7 @@ export class JiraIntegration {
     return true;
   }
 
-  async fetchIssues(filter?: string): Promise<any[]> {
+  async fetchIssues(_filter?: string): Promise<any[]> {
     console.log('Fetching Jira issues...');
     return [];
   }
@@ -204,10 +204,10 @@ export class JiraIntegration {
 
 // GitHub Integration
 export class GitHubIntegration {
-  private config: IntegrationConfig;
+  private _config: IntegrationConfig;
 
   constructor(config: IntegrationConfig) {
-    this.config = config;
+    this._config = config;
   }
 
   async connect(): Promise<boolean> {
