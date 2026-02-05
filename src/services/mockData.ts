@@ -116,7 +116,7 @@ export const mockInsights: Insight[] = [
   },
 ];
 
-export const generateAIResponse = (userMessage: string, context: any): Message => {
+export const generateAIResponse = (userMessage: string, _context: any): Message => {
   const lowerMessage = userMessage.toLowerCase();
   
   let response = '';
