@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, Loader2, Mic, MicOff, Volume2, VolumeX, Sparkles } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Message } from '../types';
 import { generateCEOResponse, generateDailyBriefing, type CEOContext } from '../services/ceoAIService';
 import {
@@ -63,15 +65,53 @@ export default function ChatInterface({ context: _context }: ChatInterfaceProps)
       }
     }
 
+    // Cleanup on page refresh/close
+    const handleBeforeUnload = () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {
+          // Ignore errors during cleanup
+        }
+      }
+      if (synthesisRef.current) {
+        synthesisRef.current.cancel();
+      }
+    };
+
+    // Stop recognition when tab becomes hidden
+    const handleVisibilityChange = () => {
+      if (document.hidden && recognitionRef.current && isListening) {
+        try {
+          recognitionRef.current.stop();
+          setIsListening(false);
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
+      // Component unmount cleanup
       if (synthesisRef.current) {
         synthesisRef.current.cancel();
       }
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {
+          // Recognition might already be stopped
+        }
       }
+      
+      // Remove event listeners
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []);
+  }, [isListening]);
 
   // Speak text using text-to-speech
   const speak = (text: string) => {
@@ -296,7 +336,32 @@ export default function ChatInterface({ context: _context }: ChatInterfaceProps)
                   : 'bg-slate-700 text-gray-100'
               }`}
             >
-              <div className="whitespace-pre-wrap">{message.content}</div>
+              <div className="prose prose-invert prose-sm max-w-none">
+                {message.role === 'assistant' ? (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      h1: ({node, ...props}) => <h1 className="text-2xl font-bold mb-3 mt-4 text-green-400 border-b border-green-600 pb-2" {...props} />,
+                      h2: ({node, ...props}) => <h2 className="text-xl font-bold mb-2 mt-4 text-green-300" {...props} />,
+                      h3: ({node, ...props}) => <h3 className="text-lg font-semibold mb-2 mt-3 text-green-200" {...props} />,
+                      h4: ({node, ...props}) => <h4 className="text-base font-semibold mb-1 mt-2 text-gray-200" {...props} />,
+                      p: ({node, ...props}) => <p className="mb-3 leading-relaxed text-gray-200" {...props} />,
+                      ul: ({node, ...props}) => <ul className="list-disc list-inside mb-3 space-y-1 ml-2" {...props} />,
+                      ol: ({node, ...props}) => <ol className="list-decimal list-inside mb-3 space-y-1 ml-2" {...props} />,
+                      li: ({node, ...props}) => <li className="ml-2 text-gray-200" {...props} />,
+                      strong: ({node, ...props}) => <strong className="font-bold text-white" {...props} />,
+                      em: ({node, ...props}) => <em className="italic text-gray-300" {...props} />,
+                      code: ({node, ...props}) => <code className="bg-slate-800 px-2 py-1 rounded text-green-400 text-sm font-mono" {...props} />,
+                      blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-green-500 pl-4 italic text-gray-300 my-3 bg-slate-800/50 py-2" {...props} />,
+                      hr: ({node, ...props}) => <hr className="border-slate-600 my-4" {...props} />,
+                    }}
+                  >
+                    {message.content}
+                  </ReactMarkdown>
+                ) : (
+                  <div className="whitespace-pre-wrap">{message.content}</div>
+                )}
+              </div>
               <div className="flex items-center justify-between mt-2 pt-2 border-t border-opacity-20 border-gray-400">
                 <span className="text-xs opacity-70">
                   {format(message.timestamp, 'HH:mm')}
