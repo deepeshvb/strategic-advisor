@@ -1,4 +1,4 @@
-import { Mail, MessageSquare, Calendar, TrendingUp, AlertCircle, Lightbulb, FileText, CheckCircle2, BarChart3, Users, Clock } from 'lucide-react';
+import { Mail, MessageSquare, Calendar, TrendingUp, AlertCircle, Lightbulb, FileText, CheckCircle2, BarChart3 } from 'lucide-react';
 import { Priority, Insight, Channel } from '../types';
 import { format, formatDistanceToNow } from 'date-fns';
 import { getSyntheticDataStats } from '../services/syntheticData';
@@ -14,7 +14,6 @@ interface DashboardProps {
 export default function Dashboard({ channels, priorities, insights, onPriorityToggle }: DashboardProps) {
   // Get comprehensive statistics
   const stats = getSyntheticDataStats();
-  const { topPriorities } = analyzePriorities();
   const actionItems = extractAllActionItems();
   const patterns = detectPatterns();
   const getChannelIcon = (type: string) => {

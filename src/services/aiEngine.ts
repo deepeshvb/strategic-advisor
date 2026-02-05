@@ -15,10 +15,7 @@ import {
   syntheticTeamsMessages,
   syntheticOutlookEmails,
   syntheticWhatsAppMessages,
-  syntheticGmailEmails,
   syntheticCalendarEvents,
-  TeamsMessage,
-  OutlookEmail,
 } from './syntheticData';
 import {
   scoreTeamsMessage,
