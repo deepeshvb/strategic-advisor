@@ -2,7 +2,7 @@ import { Mail, MessageSquare, Calendar, TrendingUp, AlertCircle, Lightbulb, File
 import { Priority, Insight, Channel } from '../types';
 import { format, formatDistanceToNow } from 'date-fns';
 import { getSyntheticDataStats } from '../services/syntheticData';
-import { analyzePriorities, extractAllActionItems, detectPatterns } from '../services/aiEngine';
+import { extractAllActionItems, detectPatterns } from '../services/aiEngine';
 
 interface DashboardProps {
   channels: Channel[];

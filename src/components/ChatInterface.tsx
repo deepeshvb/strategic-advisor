@@ -179,7 +179,6 @@ export default function ChatInterface({ context: _context }: ChatInterfaceProps)
       const ceoContext = buildCEOContext();
       const briefingMessage = await generateDailyBriefing(ceoContext);
       setMessages([briefingMessage]);
-      setShowBriefing(true);
       
       // Optionally speak the briefing (first part only to avoid being too long)
       if (audioEnabled) {
