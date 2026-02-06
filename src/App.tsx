@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { MessageSquare, LayoutDashboard, Settings as SettingsIcon, Bot } from 'lucide-react';
 import ChatInterface from './components/ChatInterface';
 import Dashboard from './components/Dashboard';
-import Settings from './components/Settings';
+import SettingsView from './components/SettingsView';
 import { mockChannels, mockPriorities, mockInsights } from './services/mockData';
 import { Channel, Priority, Insight } from './types';
 
@@ -125,9 +125,7 @@ function App() {
             onPriorityToggle={handlePriorityToggle}
           />
         )}
-        {currentView === 'settings' && (
-          <Settings channels={channels} onToggleChannel={handleToggleChannel} />
-        )}
+        {currentView === 'settings' && <SettingsView />}
       </div>
     </div>
   );
