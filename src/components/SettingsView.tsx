@@ -1,21 +1,28 @@
 import { useState } from 'react';
-import { Settings, Building2, Cpu, Bell } from 'lucide-react';
+import { Settings, Building2, Cpu, Bell, Users } from 'lucide-react';
 import IntegrationSettings from './IntegrationSettings';
 import CompanyManagement from './CompanyManagement';
 import LocalLLMSettings from './LocalLLMSettings';
 import AlertSettings from './AlertSettings';
+import UserManagement from './UserManagement';
+import { authService } from '../services/authService';
 
-type SettingsTab = 'integrations' | 'companies' | 'llm' | 'alerts';
+type SettingsTab = 'integrations' | 'companies' | 'llm' | 'alerts' | 'users';
 
 export default function SettingsView() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('companies');
+  const currentUser = authService.getCurrentUser();
 
-  const tabs = [
-    { id: 'companies' as SettingsTab, icon: Building2, label: 'Companies' },
-    { id: 'llm' as SettingsTab, icon: Cpu, label: 'LLM Strategy' },
-    { id: 'integrations' as SettingsTab, icon: Settings, label: 'Integrations' },
-    { id: 'alerts' as SettingsTab, icon: Bell, label: 'Alerts' },
+  // Filter tabs based on permissions
+  const allTabs = [
+    { id: 'companies' as SettingsTab, icon: Building2, label: 'Companies', permission: 'viewSettings' as const },
+    { id: 'llm' as SettingsTab, icon: Cpu, label: 'LLM Strategy', permission: 'viewSettings' as const },
+    { id: 'integrations' as SettingsTab, icon: Settings, label: 'Integrations', permission: 'viewSettings' as const },
+    { id: 'alerts' as SettingsTab, icon: Bell, label: 'Alerts', permission: 'editAlerts' as const },
+    { id: 'users' as SettingsTab, icon: Users, label: 'User Management', permission: 'addUsers' as const },
   ];
+
+  const tabs = allTabs.filter(tab => authService.hasPermission(tab.permission));
 
   return (
     <div className="h-full overflow-y-auto p-6">
@@ -45,6 +52,7 @@ export default function SettingsView() {
       {activeTab === 'llm' && <LocalLLMSettings />}
       {activeTab === 'integrations' && <IntegrationSettings />}
       {activeTab === 'alerts' && <AlertSettings />}
+      {activeTab === 'users' && <UserManagement />}
     </div>
   );
 }

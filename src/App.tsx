@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react';
-import { MessageSquare, LayoutDashboard, Settings as SettingsIcon, Bot } from 'lucide-react';
+import { MessageSquare, LayoutDashboard, Settings as SettingsIcon, Bot, LogOut, User as UserIcon } from 'lucide-react';
 import ChatInterface from './components/ChatInterface';
 import Dashboard from './components/Dashboard';
 import SettingsView from './components/SettingsView';
 import CompanySelector from './components/CompanySelector';
+import LoginScreen from './components/LoginScreen';
+import SetupWizard from './components/SetupWizard';
 import { mockChannels, mockPriorities, mockInsights } from './services/mockData';
 import { Channel, Priority, Insight } from './types';
 import { companyService } from './services/companyService';
 import { INITIAL_COMPANIES } from './data/initialCompanies';
 import { backgroundMonitor } from './services/backgroundMonitor';
+import { authService } from './services/authService';
 
 type View = 'chat' | 'dashboard' | 'settings';
 
@@ -17,6 +20,9 @@ function App() {
   const [channels, setChannels] = useState<Channel[]>(mockChannels);
   const [priorities, setPriorities] = useState<Priority[]>(mockPriorities);
   const [insights] = useState<Insight[]>(mockInsights);
+  const [isAuthenticated, setIsAuthenticated] = useState(authService.isAuthenticated());
+  const [needsSetup, setNeedsSetup] = useState(authService.needsSetup());
+  const [currentUser, setCurrentUser] = useState(authService.getCurrentUser());
 
   // Initialize companies on first load
   useEffect(() => {
@@ -71,6 +77,36 @@ function App() {
     { id: 'dashboard' as View, icon: LayoutDashboard, label: 'Dashboard' },
     { id: 'settings' as View, icon: SettingsIcon, label: 'Settings' },
   ];
+
+  const handleLoginSuccess = () => {
+    setIsAuthenticated(true);
+    setCurrentUser(authService.getCurrentUser());
+  };
+
+  const handleSetupComplete = () => {
+    setNeedsSetup(false);
+    setIsAuthenticated(true);
+    setCurrentUser(authService.getCurrentUser());
+  };
+
+  const handleLogout = () => {
+    if (confirm('Are you sure you want to logout?')) {
+      authService.logout();
+      setIsAuthenticated(false);
+      setCurrentUser(null);
+      window.location.reload();
+    }
+  };
+
+  // Show setup wizard if no users exist
+  if (needsSetup) {
+    return <SetupWizard onComplete={handleSetupComplete} />;
+  }
+
+  // Show login screen if not authenticated
+  if (!isAuthenticated) {
+    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+  }
 
   return (
     <div className="flex h-screen bg-slate-900">
