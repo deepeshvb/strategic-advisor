@@ -252,14 +252,6 @@ export default function ChatInterface({ context: _context }: ChatInterfaceProps)
     }
   };
 
-  // Stop speaking
-  const stopSpeaking = () => {
-    if (synthesisRef.current) {
-      synthesisRef.current.cancel();
-      setIsSpeaking(false);
-    }
-  };
-
   // Build CEO context from synthetic data
   const buildCEOContext = (): CEOContext => {
     const now = new Date();
