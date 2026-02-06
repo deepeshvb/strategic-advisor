@@ -217,7 +217,11 @@ export default function ChatInterface({ context: _context }: ChatInterfaceProps)
     }
 
     if (isListening) {
-      recognitionRef.current.stop();
+      try {
+        recognitionRef.current.stop();
+      } catch (error) {
+        console.error('Error stopping recognition:', error);
+      }
       setIsListening(false);
     } else {
       try {
@@ -226,11 +230,30 @@ export default function ChatInterface({ context: _context }: ChatInterfaceProps)
           synthesisRef.current.cancel();
           setIsSpeaking(false);
         }
-        recognitionRef.current.start();
-        setIsListening(true);
-      } catch (error) {
-        console.error('Speech recognition error:', error);
-        setIsListening(false);
+        
+        // Ensure recognition is ready before starting
+        if (recognitionRef.current) {
+          recognitionRef.current.start();
+          setIsListening(true);
+        }
+      } catch (error: any) {
+        // Handle "already started" error gracefully
+        if (error.message?.includes('already started')) {
+          console.log('Recognition already running, stopping first...');
+          recognitionRef.current.stop();
+          setTimeout(() => {
+            try {
+              recognitionRef.current?.start();
+              setIsListening(true);
+            } catch (e) {
+              console.error('Failed to restart recognition:', e);
+              setIsListening(false);
+            }
+          }, 100);
+        } else {
+          console.error('Speech recognition error:', error);
+          setIsListening(false);
+        }
       }
     }
   };

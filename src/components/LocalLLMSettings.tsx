@@ -337,6 +337,25 @@ export default function LocalLLMSettings() {
                 ? 'All AI processing happens locally. Your data NEVER leaves your computer.'
                 : 'Company data is sent to Anthropic servers for processing.'}
             </p>
+            
+            {/* Show active models in Hybrid mode */}
+            {isHybridEnabled && (
+              <div className="mt-3 pt-3 border-t border-blue-700/30">
+                <p className="text-xs text-blue-300 font-medium mb-2">Active Models:</p>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="bg-green-900/30 border border-green-700/50 rounded px-2 py-1">
+                    <p className="text-green-400 font-medium">🔒 Sensitive Queries</p>
+                    <p className="text-green-300">{selectedModel || 'llama3.1:8b'}</p>
+                    <p className="text-green-200 text-[10px]">Local (Private)</p>
+                  </div>
+                  <div className="bg-slate-700/30 border border-slate-600/50 rounded px-2 py-1">
+                    <p className="text-blue-400 font-medium">☁️ General Queries</p>
+                    <p className="text-blue-300">Claude Sonnet 4.5</p>
+                    <p className="text-blue-200 text-[10px]">Anthropic Cloud</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Strategy Options */}
