@@ -365,28 +365,27 @@ export default function LocalLLMSettings() {
             {/* Local Only */}
             <button
               onClick={handleEnableLocal}
-              disabled={!status.running}
               className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-colors ${
-                isLocalEnabled && !isHybridEnabled && status.running
+                isLocalEnabled && !isHybridEnabled
                   ? 'border-green-600 bg-green-900/20'
                   : 'border-slate-700 bg-slate-900 hover:border-green-600/50'
-              } ${!status.running ? 'opacity-50 cursor-not-allowed' : ''}`}
+              }`}
             >
               <div className="flex items-start gap-3">
                 <Lock className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="font-medium text-white">Local Only (Recommended)</p>
+                    <p className="text-sm md:text-base font-medium text-white">Local Only (Recommended)</p>
                     {isLocalEnabled && !isHybridEnabled && (
-                      <span className="px-2 py-0.5 bg-green-600 text-white text-xs rounded">Active</span>
+                      <span className="px-2 py-0.5 bg-green-600 text-white text-xs rounded whitespace-nowrap">Active</span>
                     )}
                   </div>
-                  <p className="text-sm text-gray-400 mt-1">
-                    100% private, $0 cost, works offline. Use Ollama for all queries.
+                  <p className="text-xs md:text-sm text-gray-400 mt-1">
+                    100% private, $0 cost. Uses Ollama (on this device or laptop).
                   </p>
                   {!status.running && (
                     <p className="text-xs text-yellow-400 mt-1">
-                      ⚠️ Requires Ollama to be running
+                      ℹ️ Can connect to laptop's Ollama - configure URL below
                     </p>
                   )}
                 </div>
