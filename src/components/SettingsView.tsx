@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Settings, Building2, Cpu } from 'lucide-react';
+import { Settings, Building2, Cpu, Bell } from 'lucide-react';
 import IntegrationSettings from './IntegrationSettings';
 import CompanyManagement from './CompanyManagement';
 import LocalLLMSettings from './LocalLLMSettings';
+import AlertSettings from './AlertSettings';
 
-type SettingsTab = 'integrations' | 'companies' | 'llm';
+type SettingsTab = 'integrations' | 'companies' | 'llm' | 'alerts';
 
 export default function SettingsView() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('companies');
@@ -13,6 +14,7 @@ export default function SettingsView() {
     { id: 'companies' as SettingsTab, icon: Building2, label: 'Companies' },
     { id: 'llm' as SettingsTab, icon: Cpu, label: 'LLM Strategy' },
     { id: 'integrations' as SettingsTab, icon: Settings, label: 'Integrations' },
+    { id: 'alerts' as SettingsTab, icon: Bell, label: 'Alerts' },
   ];
 
   return (
@@ -42,6 +44,7 @@ export default function SettingsView() {
       {activeTab === 'companies' && <CompanyManagement />}
       {activeTab === 'llm' && <LocalLLMSettings />}
       {activeTab === 'integrations' && <IntegrationSettings />}
+      {activeTab === 'alerts' && <AlertSettings />}
     </div>
   );
 }

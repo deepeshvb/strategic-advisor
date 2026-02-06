@@ -4,6 +4,7 @@
  */
 
 import { companyService } from './companyService';
+import { alertService } from './alertService';
 
 interface UrgentItem {
   id: string;
@@ -20,7 +21,7 @@ class BackgroundMonitorService {
   private isMonitoring: boolean = false;
 
   /**
-   * Start background monitoring
+   * Start background monitoring - SERVER MODE (24/7)
    */
   start() {
     if (this.isMonitoring) {
@@ -28,7 +29,9 @@ class BackgroundMonitorService {
       return;
     }
 
-    console.log('📡 Starting background monitoring (15-minute intervals)');
+    console.log('🖥️  Starting 24/7 SERVER MODE monitoring (15-minute intervals)');
+    console.log('📍 This machine will continuously monitor all configured channels');
+    console.log('📢 Alerts will be sent when critical items are detected');
     this.isMonitoring = true;
 
     // Initial check
@@ -44,6 +47,11 @@ class BackgroundMonitorService {
 
     // Register service worker for push notifications
     this.registerServiceWorker();
+
+    // Log startup message
+    console.log(`✅ Strategic Advisor is now monitoring 24/7`);
+    console.log(`📊 Next check in 15 minutes`);
+    console.log(`🌐 Access from any device: http://${window.location.hostname}:5173`);
   }
 
   /**
