@@ -53,64 +53,82 @@ export default function ChatInterface({ context: _context }: ChatInterfaceProps)
       const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (SpeechRecognition) {
         recognitionRef.current = new SpeechRecognition();
-        recognitionRef.current.continuous = false;
-        recognitionRef.current.interimResults = false;
+        recognitionRef.current.continuous = true; // Enable continuous listening for stop commands
+        recognitionRef.current.interimResults = true; // Catch commands faster
         recognitionRef.current.lang = 'en-US';
 
         recognitionRef.current.onresult = (event: any) => {
-          const transcript = event.results[0][0].transcript;
-          setInput(transcript);
-          setIsListening(false);
+          const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
           
-          // Auto-submit voice input without requiring Enter key
-          if (transcript.trim()) {
-            // Trigger submission after state updates
-            setTimeout(async () => {
-              // Stop any ongoing speech
-              if (synthesisRef.current) {
-                synthesisRef.current.cancel();
-              }
-              
-              setIsLoading(true);
-              try {
-                const userMessage: Message = {
-                  id: `msg-${Date.now()}`,
-                  role: 'user',
-                  content: transcript,
-                  timestamp: new Date(),
-                };
-
-                setMessages((prev) => [...prev, userMessage]);
-                
-                // Build CEO context and generate strategic response
-                const ceoContext = buildCEOContext();
-                const aiResponse = await generateCEOResponse(transcript, ceoContext);
-                
-                setMessages((prev) => [...prev, aiResponse]);
-                
-                // Speak the response if audio is enabled
-                if (audioEnabled) {
-                  const cleanContent = aiResponse.content
-                    .replace(/[#*]/g, '')
-                    .replace(/🔴|🟠|🟡|🟢|📧|💬|📊|✅|📅|💡|🎯|⏰|🚀/g, '')
-                    .replace(/\n\n/g, '. ')
-                    .replace(/\n/g, ' ')
-                    .substring(0, 500);
-                  speak(cleanContent);
+          // Check for voice control commands (stop, pause, silence, quiet, shut up)
+          const stopCommands = ['stop', 'pause', 'silence', 'quiet', 'shut up', 'stop reading', 'stop talking'];
+          if (stopCommands.some(cmd => transcript.includes(cmd))) {
+            // Immediately stop speech
+            if (synthesisRef.current) {
+              synthesisRef.current.cancel();
+              setIsSpeaking(false);
+            }
+            console.log('🔇 Voice command: Stop speaking');
+            // Clear input and don't process as query
+            setInput('');
+            return;
+          }
+          
+          // Only process final results for queries
+          if (event.results[event.results.length - 1].isFinal) {
+            setInput(transcript);
+            setIsListening(false);
+            
+            // Auto-submit voice input without requiring Enter key
+            if (transcript.trim()) {
+              // Trigger submission after state updates
+              setTimeout(async () => {
+                // Stop any ongoing speech before new query
+                if (synthesisRef.current) {
+                  synthesisRef.current.cancel();
                 }
-              } catch (error) {
-                console.error('Error generating response:', error);
-                setMessages((prev) => [...prev, {
-                  id: `error-${Date.now()}`,
-                  role: 'assistant',
-                  content: 'I apologize, but I encountered an error processing your request. Please try again.',
-                  timestamp: new Date(),
-                }]);
-              } finally {
-                setIsLoading(false);
-                setInput('');
-              }
-            }, 300);
+                
+                setIsLoading(true);
+                try {
+                  const userMessage: Message = {
+                    id: `msg-${Date.now()}`,
+                    role: 'user',
+                    content: transcript,
+                    timestamp: new Date(),
+                  };
+
+                  setMessages((prev) => [...prev, userMessage]);
+                  
+                  // Build CEO context and generate strategic response
+                  const ceoContext = buildCEOContext();
+                  const aiResponse = await generateCEOResponse(transcript, ceoContext);
+                  
+                  setMessages((prev) => [...prev, aiResponse]);
+                  
+                  // Speak the response if audio is enabled
+                  if (audioEnabled) {
+                    const cleanContent = aiResponse.content
+                      .replace(/[#*]/g, '')
+                      .replace(/🔴|🟠|🟡|🟢|📧|💬|📊|✅|📅|💡|🎯|⏰|🚀/g, '')
+                      .replace(/\n\n/g, '. ')
+                      .replace(/\n/g, ' ')
+                      .substring(0, 500);
+                    speak(cleanContent);
+                  }
+                } catch (error) {
+                  console.error('Error generating response:', error);
+                  setMessages((prev) => [...prev, {
+                    id: `error-${Date.now()}`,
+                    role: 'assistant',
+                    content: 'I apologize, but I encountered an error processing your request. Please try again.',
+                    timestamp: new Date(),
+                  }]);
+                } finally {
+                  setIsLoading(false);
+                  setInput('');
+                }
+              }, 300);
+            }
           }
         };
 
@@ -202,8 +220,26 @@ export default function ChatInterface({ context: _context }: ChatInterfaceProps)
       recognitionRef.current.stop();
       setIsListening(false);
     } else {
-      recognitionRef.current.start();
-      setIsListening(true);
+      try {
+        // Stop any ongoing speech when starting to listen
+        if (synthesisRef.current && isSpeaking) {
+          synthesisRef.current.cancel();
+          setIsSpeaking(false);
+        }
+        recognitionRef.current.start();
+        setIsListening(true);
+      } catch (error) {
+        console.error('Speech recognition error:', error);
+        setIsListening(false);
+      }
+    }
+  };
+
+  // Stop speaking immediately
+  const stopSpeaking = () => {
+    if (synthesisRef.current) {
+      synthesisRef.current.cancel();
+      setIsSpeaking(false);
     }
   };
 
