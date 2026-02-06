@@ -6,12 +6,15 @@ import SettingsView from './components/SettingsView';
 import CompanySelector from './components/CompanySelector';
 import LoginScreen from './components/LoginScreen';
 import SetupWizard from './components/SetupWizard';
+import MobileAlertBanner from './components/MobileAlertBanner';
 import { mockChannels, mockPriorities, mockInsights } from './services/mockData';
 import { Channel, Priority, Insight } from './types';
 import { companyService } from './services/companyService';
 import { INITIAL_COMPANIES } from './data/initialCompanies';
 import { backgroundMonitor } from './services/backgroundMonitor';
 import { authService } from './services/authService';
+import { deviceService } from './services/deviceService';
+import { realtimeService } from './services/realtimeService';
 
 type View = 'chat' | 'dashboard' | 'settings';
 
@@ -80,7 +83,17 @@ function App() {
 
   const handleLoginSuccess = () => {
     setIsAuthenticated(true);
-    setCurrentUser(authService.getCurrentUser());
+    const user = authService.getCurrentUser();
+    setCurrentUser(user);
+    
+    // Register device for push notifications
+    if (user) {
+      deviceService.registerDevice(user.id);
+    }
+
+    // Show device type in console
+    const deviceType = deviceService.getDeviceType();
+    console.log(`📱 Device: ${deviceType} (${deviceService.isMobile() ? 'no timeout' : 'timeout enabled'})`);
   };
 
   const handleSetupComplete = () => {
@@ -110,6 +123,9 @@ function App() {
 
   return (
     <div className="flex h-screen bg-slate-900">
+      {/* Mobile Alert Banner */}
+      {deviceService.isMobile() && <MobileAlertBanner />}
+      
       {/* Mobile-Responsive Sidebar */}
       <div className="hidden md:flex w-48 lg:w-64 bg-slate-800 border-r border-slate-700 flex-col">
         {/* Logo */}

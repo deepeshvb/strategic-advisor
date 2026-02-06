@@ -107,19 +107,27 @@ class AuthService {
    * Setup session monitoring
    */
   private setupSessionMonitoring() {
-    // Check session every minute
-    setInterval(() => {
-      if (this.currentUser && this.currentUser.lastLogin) {
-        const now = new Date();
-        const minutesSinceLogin = (now.getTime() - this.currentUser.lastLogin.getTime()) / 60000;
-        
-        if (minutesSinceLogin > this.config.sessionTimeout) {
-          console.log('Session expired, logging out...');
-          this.logout();
-          window.location.reload();
+    // Import device service to check if mobile
+    import('./deviceService').then(({ deviceService }) => {
+      // Check session every minute
+      setInterval(() => {
+        // Mobile devices never timeout (for receiving alerts)
+        if (deviceService.isMobile()) {
+          return; // Skip timeout check on mobile
         }
-      }
-    }, 60000); // Check every minute
+
+        if (this.currentUser && this.currentUser.lastLogin) {
+          const now = new Date();
+          const minutesSinceLogin = (now.getTime() - this.currentUser.lastLogin.getTime()) / 60000;
+          
+          if (minutesSinceLogin > this.config.sessionTimeout) {
+            console.log('Session expired, logging out...');
+            this.logout();
+            window.location.reload();
+          }
+        }
+      }, 60000); // Check every minute
+    });
   }
 
   /**
