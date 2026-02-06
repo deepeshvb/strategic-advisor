@@ -44,7 +44,7 @@ export default function AlertSettings() {
   const history = alertService.getAlertHistory();
 
   return (
-    <div className="space-y-4 md:space-y-6 p-4 md:p-0">
+    <div className="w-full max-w-full space-y-4 md:space-y-6 p-4 md:p-6 bg-slate-900">
       <div>
         <h2 className="text-xl md:text-2xl font-bold text-white mb-2">Alert Configuration</h2>
         <p className="text-sm md:text-base text-gray-400">

@@ -105,7 +105,7 @@ export default function LocalLLMSettings() {
   const isHybridEnabled = localStorage.getItem('use_hybrid_llm') === 'true';
 
   return (
-    <div className="space-y-6">
+    <div className="w-full max-w-full space-y-6 p-4 md:p-6 bg-slate-900">
       {/* Header */}
       <div>
         <h2 className="text-2xl font-bold text-white mb-2">LLM Strategy</h2>

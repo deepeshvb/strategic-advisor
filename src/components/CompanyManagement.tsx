@@ -116,7 +116,7 @@ export default function CompanyManagement() {
   const activeCompanies = companyService.getActiveCompanies();
 
   return (
-    <div className="space-y-6">
+    <div className="w-full max-w-full space-y-6 p-4 md:p-6 bg-slate-900">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
