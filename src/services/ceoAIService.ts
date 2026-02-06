@@ -194,6 +194,38 @@ export async function generateCEOResponse(
  * Generate daily strategic briefing
  */
 export async function generateDailyBriefing(context: CEOContext): Promise<Message> {
+  const useLocal = await shouldUseLocalLLM();
+  
+  if (useLocal) {
+    try {
+      const companyContext = await companyService.buildCompanyContext();
+      const contextString = companyContext 
+        ? formatCompanyContext(companyContext) + '\n\n' + formatContextForLLM(context)
+        : formatContextForLLM(context);
+      
+      const briefingContent = await localLLMService.generateDailyBriefing(contextString);
+      
+      return {
+        id: `msg-${Date.now()}`,
+        role: 'assistant',
+        content: briefingContent,
+        timestamp: new Date(),
+        metadata: {
+          type: 'daily-briefing',
+          privacy: 'local',
+        },
+      };
+    } catch (error: any) {
+      return {
+        id: `msg-${Date.now()}`,
+        role: 'assistant',
+        content: `⚠️ Local LLM Error\n\n${error.message}`,
+        timestamp: new Date(),
+      };
+    }
+  }
+  
+  // Fallback to cloud
   return await generateCEOResponse(
     'Give me my strategic briefing for today. What are my top priorities, what ground truth should I know, and what clarifications do I need to get?',
     context

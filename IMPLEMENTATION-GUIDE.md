@@ -26,19 +26,22 @@
 
 1. [Prerequisites](#prerequisites)
 2. [Initial Setup](#initial-setup)
-3. [Understanding Frontend vs Backend Configuration](#understanding-frontend-vs-backend-configuration)
-4. [Core Setup: Anthropic API](#core-setup-anthropic-api)
-5. [Integration Setup](#integration-setup)
+3. [Privacy-First Architecture](#privacy-first-architecture)
+4. [Local LLM Setup (Recommended)](#local-llm-setup-recommended)
+5. [Company Configuration](#company-configuration)
+6. [Understanding Frontend vs Backend Configuration](#understanding-frontend-vs-backend-configuration)
+7. [Cloud API Setup (Alternative)](#cloud-api-setup-alternative)
+8. [Integration Setup](#integration-setup)
    - [Gmail](#gmail-integration)
    - [Microsoft 365 (Teams, Outlook, Calendar)](#microsoft-365-integration)
    - [Slack](#slack-integration)
    - [Discord](#discord-integration)
    - [Jira](#jira-integration)
    - [GitHub](#github-integration)
-6. [Backend Server Setup](#backend-server-setup)
-7. [Testing & Verification](#testing--verification)
-8. [Production Deployment](#production-deployment)
-9. [Troubleshooting](#troubleshooting)
+9. [Backend Server Setup](#backend-server-setup)
+10. [Testing & Verification](#testing--verification)
+11. [Production Deployment](#production-deployment)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -61,20 +64,28 @@
 - **Frontend-Only** (OAuth personal access): 1-2 hours
 - **Backend + Organization-Wide**: 4-8 hours (requires server setup)
 
-### Two Implementation Paths
+### Three Implementation Paths
 
-**Path A: Frontend-Only (Limited)**
-- Configure public Client IDs in UI
-- OAuth flows for personal data access only
-- Your own inbox/channels only
-- No organization-wide scanning
-- ⚠️ Less secure, not recommended for production
+**Path A: Local LLM Only (Maximum Privacy) ⭐ RECOMMENDED**
+- Install Ollama for 100% local AI processing
+- Configure companies in UI
+- Your data NEVER leaves your computer
+- $0 API costs
+- Perfect for sensitive company data
+- Time: 30 minutes
 
-**Path B: Backend + Frontend (Recommended)**
-- Secure backend server stores all secrets
-- Organization-wide scanning capability
-- Production-ready security
-- Full feature set enabled
+**Path B: Cloud API (Quick Start)**
+- Use Anthropic Claude API
+- Faster setup (no local installation)
+- Better for testing/demos
+- ⚠️ Company data sent to third party
+- Time: 15 minutes
+
+**Path C: Hybrid (Local AI + Real Integrations)**
+- Local LLM for AI processing (private)
+- Backend server for organization-wide data scanning
+- Best of both: privacy + full features
+- Time: 4-8 hours
 
 ---
 
@@ -106,6 +117,199 @@ npm run dev
 ```
 
 Open `http://localhost:5173` - you should see the app running with synthetic demo data.
+
+---
+
+## Privacy-First Architecture
+
+### 🔒 Your Data, Your Machine
+
+**The Strategic Advisor prioritizes privacy:**
+
+1. **Local AI Processing** - Uses Ollama (local LLM) by default
+   - All AI inference happens on YOUR computer
+   - Company data NEVER sent to cloud
+   - $0 ongoing costs
+   
+2. **Local Data Storage** - Companies, decisions, history stored in browser localStorage
+   - No external database
+   - Complete control over your data
+   
+3. **Optional Cloud Fallback** - Can use Claude API if Ollama unavailable
+   - Explicitly warns you before sending data to cloud
+   - Easy toggle between local/cloud
+
+### Privacy Comparison
+
+| Feature | Local LLM (Ollama) | Cloud API (Claude) |
+|---------|-------------------|-------------------|
+| **Privacy** | 🟢 100% Private | 🟡 Data sent to Anthropic |
+| **Cost** | 🟢 $0/month | 🔴 $50-500/month |
+| **Speed** | 🟡 Moderate (depends on hardware) | 🟢 Fast |
+| **Quality** | 🟢 Excellent (70B model) | 🟢 Excellent |
+| **Offline** | 🟢 Works offline | 🔴 Requires internet |
+| **Setup** | 🟡 15-30 minutes | 🟢 5 minutes |
+
+**Recommendation:** Use Local LLM for production with sensitive data.
+
+---
+
+## Local LLM Setup (Recommended)
+
+**For complete privacy, install Ollama - your data stays on your machine.**
+
+### Step 1: Install Ollama
+
+**Windows:**
+1. Download from https://ollama.com/download/windows
+2. Run installer
+3. Ollama starts automatically as Windows service
+
+**macOS:**
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+**Linux:**
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+### Step 2: Download AI Model
+
+Choose based on your RAM:
+
+```bash
+# Best quality (48GB+ RAM) - Recommended if you have the hardware
+ollama pull llama3.1:70b
+
+# Good quality (16GB+ RAM) - Recommended for most users
+ollama pull llama3.1:8b
+
+# Fast (8GB RAM) - Good for lower-end machines
+ollama pull mistral:7b
+
+# Lightweight (4GB RAM) - Minimum viable option
+ollama pull phi3:3.8b
+```
+
+**Download takes 2-10 minutes** depending on model size and internet speed.
+
+### Step 3: Verify Installation
+
+```bash
+# Check Ollama is running
+curl http://localhost:11434
+# Should return: "Ollama is running"
+
+# List installed models
+ollama list
+
+# Test the model
+ollama run llama3.1:8b "What are key strategies for IT consulting?"
+```
+
+### Step 4: Configure in App
+
+1. Start Strategic Advisor: `npm run dev`
+2. Go to **Settings** → **Local LLM** tab
+3. Click **Check Status** - should show green "Ollama is Running"
+4. Select your model from dropdown
+5. Click **Enable Local LLM** button
+6. Done! All queries now 100% private
+
+### Step 5: Verify Privacy Mode
+
+- Browser console should show:
+  ```
+  🔒 Using LOCAL LLM (privacy mode)
+  🧠 Generating response with LOCAL LLM (Ollama)...
+  🔒 Privacy: All data processed locally, NEVER sent to cloud
+  ```
+
+**See [OLLAMA-SETUP.md](OLLAMA-SETUP.md) for detailed guide including troubleshooting.**
+
+---
+
+## Company Configuration
+
+### Your Companies Are Pre-Configured!
+
+The app automatically initializes with your companies:
+
+**✅ Pre-configured:**
+1. **Othain Group** - Digital transformation consultancy
+   - ISO-certified (9001, 27001, 20000)
+   - Services: SAP/Oracle, QA/Testing, RPA, F&A automation
+   - ~135 employees
+   - Target: Enterprise clients in finance, healthcare, retail, insurance
+
+2. **Jersey Technology Partners** - IT services & digital transformation
+   - Product engineering, digital services, AI solutions
+   - Global delivery model
+   - Target: Mid-market companies (50-500 employees)
+   - Focus: AI/ML consulting, cloud migration
+
+3. **Strivio LLC** - Executive services (This platform!)
+   - Strategic advisory and executive intelligence
+   - AI-driven decision support for CEOs
+   - Target: 7-8 figure businesses
+   - Stage: Startup/MVP
+
+### Managing Companies in UI
+
+**View/Edit Companies:**
+1. Go to **Settings** → **Companies** tab
+2. See all your companies listed
+3. Click **Set Active** to switch between them
+4. Click **Edit** to modify details
+5. Click **Add Company** to add more
+
+**Company Selector (Sidebar):**
+- Shows active company at all times
+- Quick switcher dropdown
+- Context changes instantly when you switch
+
+**What You Can Configure:**
+- Company name, industry, stage
+- Number of employees
+- Description of services
+- Current strategic goals
+- Competitors to track
+- Target market
+- Departments and stakeholders
+- AI behavior settings (aggressive vs. conservative)
+
+### Strategic Intelligence Per Company
+
+Each company gets:
+- **Separate chat history**
+- **Company-specific strategic goals**
+- **Competitor tracking**
+- **Industry-specific insights**
+- **Historical decision tracking**
+- **Custom AI personality** (risk tolerance, focus areas)
+
+### Add New Companies
+
+1. Settings → Companies → **Add Company**
+2. Fill in:
+   - **Basic Info**: Name, industry, stage, employees
+   - **Description**: What the company does
+   - **Strategic Goals**: Current objectives (one per line)
+   - **Competitors**: Companies to monitor (comma-separated)
+   - **Target Market**: Who you serve
+3. Click **Add Company**
+4. Switch to it via Company Selector
+
+**Example Goals for IT Consulting:**
+```
+Expand AI/ML consulting practice
+Acquire 15 new enterprise clients
+Build strategic partnership with Microsoft
+Launch proprietary product/IP
+Increase profit margins to 25%
+```
 
 ---
 
@@ -145,9 +349,29 @@ These appear as **🔴 Backend Only** in the Settings UI and are disabled (canno
 
 ---
 
-## Core Setup: Anthropic API
+## Cloud API Setup (Alternative)
 
-**Required for all functionality**
+**⚠️ NOT RECOMMENDED if you have sensitive company data**
+
+### When to Use Cloud API:
+- Quick testing/demo only
+- No local hardware (using cloud IDE)
+- Don't have RAM for local models
+- Okay with data being sent to Anthropic
+
+### When to Use Local LLM (Ollama):
+- **Production use with sensitive data** ✅
+- Organization-wide email/Teams scanning
+- Competitor intelligence
+- Financial information
+- Strategic decisions
+- **Always recommended for privacy**
+
+---
+
+## Core Setup: Anthropic API (Optional - Only if NOT using Local LLM)
+
+**Skip this section if you're using Local LLM (recommended)**
 
 ### Step 1: Get Anthropic API Key
 
@@ -174,6 +398,17 @@ npm run dev
 Open the app and click **Daily Briefing** - you should get a response from Claude.
 
 **Cost Estimate:** ~$0.01-0.10 per request depending on context size
+
+**⚠️ Privacy Warning:** When using cloud API:
+- Your company data is sent to Anthropic servers
+- Organization-wide emails/chats transmitted externally
+- Strategic decisions visible to third party
+- **For sensitive data, use Local LLM instead**
+
+To force cloud API usage even if Ollama is installed:
+1. Go to Settings → Local LLM
+2. Click "Use Cloud API" button
+3. Confirm the privacy warning
 
 ---
 
@@ -765,41 +1000,106 @@ Should complete with no TypeScript errors.
 npm run dev
 ```
 
-### Step 4: Test Core Functionality
+### Step 4: Verify Company Setup
 
 1. Open `http://localhost:5173`
+2. Check sidebar - should see **Company Selector** with your companies:
+   - Othain Group
+   - Jersey Technology Partners
+   - Strivio LLC
+3. Click to switch between companies
+4. Go to **Settings** → **Companies** tab
+5. Verify all 3 companies are pre-configured with goals and details
+
+### Step 5: Test AI (Local or Cloud)
+
+**If using Local LLM (Ollama):**
+1. Check browser console (F12) for: `🔒 Using LOCAL LLM (privacy mode)`
 2. Click **Daily Briefing**
-3. Verify Claude responds with strategic analysis
-4. Test voice input (microphone icon)
-5. Test voice output (speaker icon)
+3. Should see: `🧠 Generating response with LOCAL LLM (Ollama)...`
+4. Response generated completely locally
 
-### Step 5: Test Integrations
+**If using Cloud API:**
+1. Click **Daily Briefing**
+2. Should see: `☁️ Using cloud API (Ollama not available)`
+3. Console shows warning about data being sent to Anthropic
 
-1. Navigate to **Settings** (in sidebar)
+### Step 6: Test Features
+
+1. **Company switching**: Change active company in selector, verify context changes
+2. **Voice input**: Test microphone icon
+3. **Voice output**: Test speaker icon (stops on new request)
+4. **Markdown rendering**: Responses show proper headings and formatting
+5. **Strategic queries**: Ask "What should I focus on today?"
+
+### Step 7: Configure Additional Settings
+
+**Company Management:**
+1. Settings → **Companies** tab
+2. Edit company details, goals, competitors
+3. Add new companies as needed
+4. Export/import company data for backup
+
+**Local LLM Settings:**
+1. Settings → **Local LLM** tab
+2. Check Ollama status
+3. Select preferred model
+4. Enable/disable privacy mode
+5. View recommended models and system requirements
+
+**Integration Settings:**
+1. Settings → **Integrations** tab
 2. Review security indicators:
    - 🟢 **Frontend Safe** fields - Can be configured in UI
    - 🔴 **Backend Only** fields - Must be on backend server
-   - **Backend Required** badge - Integration needs server
-3. For enabled integrations:
-   - Green checkmark: Connected and working
-   - Yellow warning: Credentials not configured
-   - Red X: Check credentials, permissions, or backend connection
-4. If backend required:
-   - Ensure backend server is running
-   - Verify `VITE_BACKEND_URL` is set correctly
-   - Check backend logs for errors
+3. Configure integrations as needed
 
-### Step 6: Test Data Flow
+### Step 8: Test Integrations
 
-1. Go to **Dashboard**
-2. Check "Integration Status" section
-3. Verify counts for:
-   - Total messages
-   - Unread count
-   - Channels connected
-4. Go to **Chat**
-5. Ask: "What conflicts do you see between teams?"
-6. Verify response includes data from your integrations
+For enabled integrations:
+- Green checkmark: Connected and working
+- Yellow warning: Credentials not configured
+- Red X: Check credentials, permissions, or backend connection
+
+If backend required:
+- Ensure backend server is running
+- Verify `VITE_BACKEND_URL` is set correctly
+- Check backend logs for errors
+
+### Step 9: Test Strategic Queries
+
+Go to **Chat** and try these queries:
+
+**Company-Specific:**
+- "What should I focus on today?" (uses active company context)
+- "What are the biggest opportunities for [Company Name]?"
+- "What conflicts or risks should I be aware of?"
+
+**Cross-Company:**
+- Switch companies via Company Selector
+- Ask same questions for different companies
+- Compare strategic recommendations
+
+**Multi-Dimensional Reasoning:**
+- "Should I hire 10 more engineers?"
+- "Should we expand to new markets?"
+- Listen for second-order and third-order effects analysis
+
+### Step 10: Verify Privacy (If Using Local LLM)
+
+1. Open browser console (F12)
+2. Ask any strategic question
+3. Check for these indicators:
+   ```
+   🔒 Using LOCAL LLM (privacy mode)
+   🧠 Generating response with LOCAL LLM (Ollama)...
+   📍 Model: llama3.1:8b
+   🔒 Privacy: All data processed locally, NEVER sent to cloud
+   ✅ Local LLM response generated in XXXXms
+   🔒 Privacy: No data left your computer
+   ```
+
+**If you see warnings about cloud API**, go to Settings → Local LLM → Enable Local LLM
 
 ---
 
@@ -1026,22 +1326,69 @@ npm run build
 
 ---
 
-## Next Steps
+## Quick Start Paths
 
-After successful setup:
+### Path 1: Privacy-First (Recommended - 30 minutes)
 
-1. ✅ **Deploy backend server** (required for production)
-2. ✅ Configure frontend-safe values in Settings UI
-3. ✅ Configure backend-only secrets on server
-4. ✅ Test with your own data
-5. ✅ Review daily briefings for a week
-6. ✅ Customize system prompt if needed (`src/prompts/ceo-system-prompt.ts`)
-7. ✅ Add more integrations gradually
-8. ✅ Set up organization-wide scanning (with backend + IT team)
-9. ✅ Train team members on using the tool
-10. ✅ Schedule regular API key rotation
-11. ✅ Monitor usage and costs
-12. ✅ Review backend security regularly
+Perfect for production use with sensitive data:
+
+1. ✅ Install Ollama: https://ollama.com/download
+2. ✅ Run: `ollama pull llama3.1:8b`
+3. ✅ Start app: `npm run dev`
+4. ✅ Settings → Local LLM → Enable Local LLM
+5. ✅ Settings → Companies → Verify your 3 companies
+6. ✅ Click Daily Briefing - all processing is local!
+7. ✅ Ask strategic questions - 100% private
+
+**Result:** Fully functional Strategic Advisor with complete privacy.
+
+### Path 2: Cloud API (Quick Test - 15 minutes)
+
+For demos and testing only:
+
+1. ✅ Get Anthropic API key
+2. ✅ Add to `.env`: `VITE_ANTHROPIC_API_KEY=sk-ant-...`
+3. ✅ Start app: `npm run dev`
+4. ✅ Click Daily Briefing - uses cloud
+5. ⚠️ Warning: Company data sent to Anthropic
+
+**Result:** Fast setup but less privacy.
+
+### Path 3: Full Enterprise (4-8 hours)
+
+For organization-wide scanning:
+
+1. ✅ Install Ollama (privacy)
+2. ✅ Configure companies
+3. ✅ Set up backend server (for integrations)
+4. ✅ Configure Microsoft 365/Gmail admin permissions
+5. ✅ Enable org-wide scanning
+6. ✅ Deploy to production
+
+**Result:** Complete enterprise solution with max privacy and full features.
+
+## Next Steps After Setup
+
+### First Week:
+1. ✅ Use daily briefings every morning
+2. ✅ Configure your company goals and metrics
+3. ✅ Add historical decisions as you make them
+4. ✅ Test cross-company switching
+5. ✅ Verify privacy mode is active
+
+### First Month:
+6. ✅ Add more companies if needed
+7. ✅ Connect real integrations (Email, Teams)
+8. ✅ Fine-tune AI settings per company
+9. ✅ Build habit of strategic queries
+10. ✅ Review and update company goals
+
+### Ongoing:
+11. ✅ Export company data regularly (backup)
+12. ✅ Update Ollama models monthly
+13. ✅ Add historical decisions for learning
+14. ✅ Monitor system performance
+15. ✅ Customize prompts if needed (`src/prompts/agi-strategic-prompt.ts`)
 
 ---
 

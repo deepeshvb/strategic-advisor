@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MessageSquare, LayoutDashboard, Settings as SettingsIcon, Bot } from 'lucide-react';
 import ChatInterface from './components/ChatInterface';
 import Dashboard from './components/Dashboard';
 import SettingsView from './components/SettingsView';
+import CompanySelector from './components/CompanySelector';
 import { mockChannels, mockPriorities, mockInsights } from './services/mockData';
 import { Channel, Priority, Insight } from './types';
+import { companyService } from './services/companyService';
+import { INITIAL_COMPANIES } from './data/initialCompanies';
 
 type View = 'chat' | 'dashboard' | 'settings';
 
@@ -13,6 +16,17 @@ function App() {
   const [channels, setChannels] = useState<Channel[]>(mockChannels);
   const [priorities, setPriorities] = useState<Priority[]>(mockPriorities);
   const [insights] = useState<Insight[]>(mockInsights);
+
+  // Initialize companies on first load
+  useEffect(() => {
+    const existing = companyService.getAllCompanies();
+    if (existing.length === 0) {
+      console.log('🏢 Initializing default companies...');
+      INITIAL_COMPANIES.forEach(company => {
+        companyService.addCompany(company);
+      });
+    }
+  }, []);
 
   const handlePriorityToggle = (id: string) => {
     setPriorities((prev) =>
@@ -86,8 +100,13 @@ function App() {
           </div>
         </nav>
 
-        {/* Stats */}
+        {/* Company Selector */}
         <div className="p-4 border-t border-slate-700">
+          <CompanySelector />
+        </div>
+
+        {/* Stats */}
+        <div className="p-4">
           <div className="bg-slate-700 rounded-lg p-4">
             <h3 className="text-white font-medium mb-3">Quick Stats</h3>
             <div className="space-y-2 text-sm">
