@@ -7,12 +7,17 @@ interface IntegrationConfig {
   type: string;
   enabled: boolean;
   status: 'connected' | 'error' | 'not-configured';
+  requiresBackend: boolean;
+  backendReason?: string;
   fields: {
     key: string;
     label: string;
-    type: 'text' | 'password' | 'email';
+    type: 'text' | 'password' | 'email' | 'file';
     value: string;
     required: boolean;
+    frontendSafe: boolean;
+    backendOnly?: boolean;
+    description?: string;
   }[];
 }
 
@@ -20,25 +25,195 @@ export default function IntegrationSettings() {
   const [integrations, setIntegrations] = useState<IntegrationConfig[]>([
     {
       id: 'gmail',
-      name: 'Gmail',
+      name: 'Gmail (Personal Access)',
       type: 'email',
       enabled: false,
       status: 'not-configured',
+      requiresBackend: false,
       fields: [
-        { key: 'VITE_GMAIL_CLIENT_ID', label: 'Client ID', type: 'text', value: '', required: true },
-        { key: 'VITE_GMAIL_CLIENT_SECRET', label: 'Client Secret', type: 'password', value: '', required: true },
+        { 
+          key: 'VITE_GMAIL_CLIENT_ID', 
+          label: 'Client ID', 
+          type: 'text', 
+          value: '', 
+          required: true,
+          frontendSafe: true,
+          description: 'OAuth Client ID from Google Cloud Console'
+        },
+        { 
+          key: 'VITE_GMAIL_CLIENT_SECRET', 
+          label: 'Client Secret', 
+          type: 'password', 
+          value: '', 
+          required: true,
+          frontendSafe: false,
+          backendOnly: true,
+          description: '⚠️ BACKEND ONLY - Never expose in frontend code'
+        },
+        { 
+          key: 'VITE_GMAIL_REDIRECT_URI', 
+          label: 'Redirect URI', 
+          type: 'text', 
+          value: 'http://localhost:5173/auth/gmail/callback', 
+          required: true,
+          frontendSafe: true,
+          description: 'Must match OAuth app configuration'
+        },
       ],
     },
     {
-      id: 'microsoft',
-      name: 'Microsoft 365 (Teams + Outlook)',
+      id: 'gmail-org',
+      name: 'Gmail (Organization-Wide)',
+      type: 'email',
+      enabled: false,
+      status: 'not-configured',
+      requiresBackend: true,
+      backendReason: 'Service Account credentials must be stored securely on backend server',
+      fields: [
+        { 
+          key: 'GOOGLE_SERVICE_ACCOUNT_KEY', 
+          label: 'Service Account JSON Key', 
+          type: 'file', 
+          value: '', 
+          required: true,
+          frontendSafe: false,
+          backendOnly: true,
+          description: '🔴 BACKEND ONLY - Upload to secure server storage, never frontend'
+        },
+        { 
+          key: 'GOOGLE_DOMAIN', 
+          label: 'Google Workspace Domain', 
+          type: 'text', 
+          value: '', 
+          required: true,
+          frontendSafe: true,
+          description: 'Your company domain (e.g., company.com)'
+        },
+        { 
+          key: 'SCAN_ALL_MAILBOXES', 
+          label: 'Enable Organization-Wide Scanning', 
+          type: 'text', 
+          value: 'true', 
+          required: true,
+          frontendSafe: true,
+          description: 'Requires Domain-Wide Delegation in Google Workspace'
+        },
+      ],
+    },
+    {
+      id: 'microsoft-personal',
+      name: 'Microsoft 365 (Personal Access)',
       type: 'teams',
       enabled: false,
       status: 'not-configured',
+      requiresBackend: false,
       fields: [
-        { key: 'VITE_MICROSOFT_CLIENT_ID', label: 'Client ID', type: 'text', value: '', required: true },
-        { key: 'VITE_MICROSOFT_CLIENT_SECRET', label: 'Client Secret', type: 'password', value: '', required: true },
-        { key: 'VITE_MICROSOFT_TENANT_ID', label: 'Tenant ID', type: 'text', value: '', required: true },
+        { 
+          key: 'VITE_MICROSOFT_CLIENT_ID', 
+          label: 'Application (Client) ID', 
+          type: 'text', 
+          value: '', 
+          required: true,
+          frontendSafe: true,
+          description: 'From Azure AD App Registration'
+        },
+        { 
+          key: 'VITE_MICROSOFT_CLIENT_SECRET', 
+          label: 'Client Secret', 
+          type: 'password', 
+          value: '', 
+          required: true,
+          frontendSafe: false,
+          backendOnly: true,
+          description: '⚠️ BACKEND ONLY - Must be stored securely on server'
+        },
+        { 
+          key: 'VITE_MICROSOFT_TENANT_ID', 
+          label: 'Directory (Tenant) ID', 
+          type: 'text', 
+          value: '', 
+          required: true,
+          frontendSafe: true,
+          description: 'Your Azure AD tenant identifier'
+        },
+        { 
+          key: 'VITE_MICROSOFT_REDIRECT_URI', 
+          label: 'Redirect URI', 
+          type: 'text', 
+          value: 'http://localhost:5173/auth/microsoft/callback', 
+          required: true,
+          frontendSafe: true,
+          description: 'OAuth callback URL'
+        },
+      ],
+    },
+    {
+      id: 'microsoft-org',
+      name: 'Microsoft 365 (Organization-Wide)',
+      type: 'teams',
+      enabled: false,
+      status: 'not-configured',
+      requiresBackend: true,
+      backendReason: 'Application permissions require backend server with Client Credentials flow',
+      fields: [
+        { 
+          key: 'MICROSOFT_CLIENT_ID', 
+          label: 'Application (Client) ID', 
+          type: 'text', 
+          value: '', 
+          required: true,
+          frontendSafe: false,
+          backendOnly: true,
+          description: '🔴 BACKEND ONLY - Used for app-only authentication'
+        },
+        { 
+          key: 'MICROSOFT_CLIENT_SECRET', 
+          label: 'Client Secret', 
+          type: 'password', 
+          value: '', 
+          required: true,
+          frontendSafe: false,
+          backendOnly: true,
+          description: '🔴 BACKEND ONLY - Critical secret for server authentication'
+        },
+        { 
+          key: 'MICROSOFT_TENANT_ID', 
+          label: 'Directory (Tenant) ID', 
+          type: 'text', 
+          value: '', 
+          required: true,
+          frontendSafe: false,
+          backendOnly: true,
+          description: '🔴 BACKEND ONLY - Part of server authentication'
+        },
+        { 
+          key: 'MICROSOFT_GRAPH_SCOPE', 
+          label: 'Graph API Scope', 
+          type: 'text', 
+          value: '.default', 
+          required: true,
+          frontendSafe: false,
+          backendOnly: true,
+          description: 'For application permissions (not delegated)'
+        },
+        { 
+          key: 'SCAN_ALL_MAILBOXES', 
+          label: 'Scan All Mailboxes', 
+          type: 'text', 
+          value: 'true', 
+          required: false,
+          frontendSafe: true,
+          description: 'Enable scanning all user mailboxes'
+        },
+        { 
+          key: 'SCAN_ALL_TEAMS', 
+          label: 'Scan All Teams Channels', 
+          type: 'text', 
+          value: 'true', 
+          required: false,
+          frontendSafe: true,
+          description: 'Enable scanning all Teams conversations'
+        },
       ],
     },
     {
@@ -55,35 +230,122 @@ export default function IntegrationSettings() {
     },
     {
       id: 'discord',
-      name: 'Discord',
+      name: 'Discord Server',
       type: 'discord',
       enabled: false,
       status: 'not-configured',
+      requiresBackend: true,
+      backendReason: 'Bot tokens grant full server access and must be protected on backend',
       fields: [
-        { key: 'VITE_DISCORD_BOT_TOKEN', label: 'Bot Token', type: 'password', value: '', required: true },
-        { key: 'VITE_DISCORD_CLIENT_ID', label: 'Client ID', type: 'text', value: '', required: true },
+        { 
+          key: 'VITE_DISCORD_CLIENT_ID', 
+          label: 'Application ID', 
+          type: 'text', 
+          value: '', 
+          required: true,
+          frontendSafe: true,
+          description: 'Public application identifier'
+        },
+        { 
+          key: 'DISCORD_CLIENT_SECRET', 
+          label: 'Client Secret', 
+          type: 'password', 
+          value: '', 
+          required: true,
+          frontendSafe: false,
+          backendOnly: true,
+          description: '🔴 BACKEND ONLY - Application secret'
+        },
+        { 
+          key: 'DISCORD_BOT_TOKEN', 
+          label: 'Bot Token', 
+          type: 'password', 
+          value: '', 
+          required: true,
+          frontendSafe: false,
+          backendOnly: true,
+          description: '🔴 BACKEND ONLY - Full bot access token'
+        },
       ],
     },
     {
       id: 'jira',
-      name: 'Jira',
+      name: 'Jira Cloud',
       type: 'jira',
       enabled: false,
       status: 'not-configured',
+      requiresBackend: true,
+      backendReason: 'API tokens provide full account access and must be secured on backend',
       fields: [
-        { key: 'VITE_JIRA_DOMAIN', label: 'Domain (e.g., company.atlassian.net)', type: 'text', value: '', required: true },
-        { key: 'VITE_JIRA_EMAIL', label: 'Email', type: 'email', value: '', required: true },
-        { key: 'VITE_JIRA_API_TOKEN', label: 'API Token', type: 'password', value: '', required: true },
+        { 
+          key: 'JIRA_DOMAIN', 
+          label: 'Jira Domain', 
+          type: 'text', 
+          value: '', 
+          required: true,
+          frontendSafe: true,
+          description: 'Your Jira site (e.g., company.atlassian.net)'
+        },
+        { 
+          key: 'JIRA_EMAIL', 
+          label: 'Account Email', 
+          type: 'email', 
+          value: '', 
+          required: true,
+          frontendSafe: false,
+          backendOnly: true,
+          description: '🔴 BACKEND ONLY - Used with API token for authentication'
+        },
+        { 
+          key: 'JIRA_API_TOKEN', 
+          label: 'API Token', 
+          type: 'password', 
+          value: '', 
+          required: true,
+          frontendSafe: false,
+          backendOnly: true,
+          description: '🔴 BACKEND ONLY - Full API access token'
+        },
       ],
     },
     {
       id: 'github',
-      name: 'GitHub',
+      name: 'GitHub Repositories',
       type: 'github',
       enabled: false,
       status: 'not-configured',
+      requiresBackend: true,
+      backendReason: 'Personal Access Tokens grant repository access and must be stored securely',
       fields: [
-        { key: 'VITE_GITHUB_PERSONAL_ACCESS_TOKEN', label: 'Personal Access Token', type: 'password', value: '', required: true },
+        { 
+          key: 'GITHUB_PERSONAL_ACCESS_TOKEN', 
+          label: 'Personal Access Token', 
+          type: 'password', 
+          value: '', 
+          required: true,
+          frontendSafe: false,
+          backendOnly: true,
+          description: '🔴 BACKEND ONLY - Grants full repository access (ghp_...)'
+        },
+        { 
+          key: 'VITE_GITHUB_CLIENT_ID', 
+          label: 'OAuth Client ID (Optional)', 
+          type: 'text', 
+          value: '', 
+          required: false,
+          frontendSafe: true,
+          description: 'For OAuth app (team use)'
+        },
+        { 
+          key: 'GITHUB_CLIENT_SECRET', 
+          label: 'OAuth Client Secret (Optional)', 
+          type: 'password', 
+          value: '', 
+          required: false,
+          frontendSafe: false,
+          backendOnly: true,
+          description: '🔴 BACKEND ONLY - OAuth app secret'
+        },
       ],
     },
   ]);
@@ -245,8 +507,20 @@ export default function IntegrationSettings() {
               <div className="flex items-center gap-3">
                 {getStatusIcon(integration.status)}
                 <div>
-                  <h3 className="text-lg font-semibold text-white">{integration.name}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-semibold text-white">{integration.name}</h3>
+                    {integration.requiresBackend && (
+                      <span className="px-2 py-1 bg-red-900/30 border border-red-700/50 text-red-400 text-xs rounded-md font-medium">
+                        Backend Required
+                      </span>
+                    )}
+                  </div>
                   <p className="text-sm text-gray-400 capitalize">{integration.type}</p>
+                  {integration.requiresBackend && (
+                    <p className="text-xs text-yellow-400 mt-1">
+                      ⚠️ {integration.backendReason}
+                    </p>
+                  )}
                 </div>
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
@@ -264,18 +538,38 @@ export default function IntegrationSettings() {
             {integration.enabled && (
               <div className="space-y-3 mt-4 pt-4 border-t border-slate-700">
                 {integration.fields.map(field => (
-                  <div key={field.key}>
+                  <div key={field.key} className={field.backendOnly ? 'bg-red-900/10 border-2 border-red-900/30 rounded-lg p-3' : ''}>
                     <label className="block text-sm font-medium text-gray-300 mb-1">
                       {field.label}
                       {field.required && <span className="text-red-400 ml-1">*</span>}
+                      {field.backendOnly && (
+                        <span className="ml-2 px-2 py-0.5 bg-red-900/50 text-red-300 text-xs rounded-md">
+                          Backend Only
+                        </span>
+                      )}
+                      {field.frontendSafe && !field.backendOnly && (
+                        <span className="ml-2 px-2 py-0.5 bg-green-900/50 text-green-300 text-xs rounded-md">
+                          Frontend Safe
+                        </span>
+                      )}
                     </label>
+                    {field.description && (
+                      <p className={`text-xs mb-2 ${field.backendOnly ? 'text-red-400 font-medium' : 'text-gray-500'}`}>
+                        {field.description}
+                      </p>
+                    )}
                     <div className="relative">
                       <input
-                        type={field.type === 'password' && !showPasswords[field.key] ? 'password' : 'text'}
+                        type={field.type === 'password' && !showPasswords[field.key] ? 'password' : field.type === 'file' ? 'file' : 'text'}
                         value={field.value}
                         onChange={(e) => handleFieldChange(integration.id, field.key, e.target.value)}
-                        placeholder={`Enter ${field.label.toLowerCase()}`}
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-primary-500 pr-10"
+                        placeholder={field.backendOnly ? 'Configure on backend server' : `Enter ${field.label.toLowerCase()}`}
+                        disabled={field.backendOnly}
+                        className={`w-full px-3 py-2 bg-slate-900 border rounded-lg placeholder-gray-500 focus:outline-none pr-10 ${
+                          field.backendOnly 
+                            ? 'border-red-900 text-red-400 cursor-not-allowed opacity-60' 
+                            : 'border-slate-600 text-white focus:border-primary-500'
+                        }`}
                       />
                       {field.type === 'password' && (
                         <button
@@ -313,22 +607,79 @@ export default function IntegrationSettings() {
         ))}
       </div>
 
+      {/* Security Warning */}
+      <div className="bg-red-900/20 border-2 border-red-700/50 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-red-400 mb-3 flex items-center gap-2">
+          <AlertCircle className="w-5 h-5" />
+          Critical Security Information
+        </h3>
+        <div className="space-y-3 text-sm text-gray-200">
+          <div>
+            <p className="font-semibold text-red-300 mb-1">🔴 Backend-Only Fields (Red)</p>
+            <p>These credentials provide FULL ACCESS to your systems and must NEVER be exposed in frontend code:</p>
+            <ul className="list-disc list-inside ml-4 mt-1 space-y-1 text-gray-300">
+              <li>Client Secrets (OAuth apps)</li>
+              <li>Service Account Keys</li>
+              <li>Bot Tokens (Slack, Discord)</li>
+              <li>API Tokens (Jira, GitHub)</li>
+              <li>Signing Secrets</li>
+            </ul>
+          </div>
+          
+          <div className="pt-3 border-t border-red-900">
+            <p className="font-semibold text-yellow-300 mb-1">⚠️ Frontend-Safe Fields (Green)</p>
+            <p>These can be included in frontend code:</p>
+            <ul className="list-disc list-inside ml-4 mt-1 space-y-1 text-gray-300">
+              <li>Client IDs (public identifiers)</li>
+              <li>Redirect URIs</li>
+              <li>Tenant IDs</li>
+              <li>Domain names</li>
+            </ul>
+          </div>
+
+          <div className="pt-3 border-t border-red-900">
+            <p className="font-semibold text-white mb-1">✅ Required: Backend Implementation</p>
+            <p>Most integrations require a backend server to:</p>
+            <ul className="list-disc list-inside ml-4 mt-1 space-y-1 text-gray-300">
+              <li>Securely store sensitive credentials</li>
+              <li>Proxy API requests (hide secrets from browser)</li>
+              <li>Handle OAuth token exchange</li>
+              <li>Implement server-to-server authentication</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
       {/* Instructions */}
       <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
         <h3 className="text-lg font-semibold text-white mb-3">Setup Instructions</h3>
+        
+        <div className="mb-4 p-3 bg-blue-900/20 border border-blue-700/50 rounded-lg">
+          <p className="text-sm text-blue-200">
+            <strong>Frontend-Only Setup (Limited):</strong> Only "Frontend Safe" fields can be configured here. 
+            This provides OAuth flows for personal access but cannot scan organization-wide communications.
+          </p>
+        </div>
+
         <ol className="space-y-2 text-sm text-gray-300 list-decimal list-inside">
           <li>Enable the integrations you want to use</li>
-          <li>Fill in the required API keys and credentials (click "How to get credentials" for help)</li>
-          <li>Click "Save Configuration"</li>
-          <li>Copy the generated .env content</li>
-          <li>Paste into your <code className="text-primary-400 bg-slate-900 px-1 rounded">.env</code> file in the project root</li>
+          <li>Fill in ONLY the <span className="text-green-400 font-medium">"Frontend Safe"</span> fields</li>
+          <li>For <span className="text-red-400 font-medium">"Backend Only"</span> fields, you MUST:
+            <ul className="list-disc list-inside ml-6 mt-1 space-y-1">
+              <li>Set up a backend server (Node.js, Python, etc.)</li>
+              <li>Store secrets as environment variables on the server</li>
+              <li>Create API proxy endpoints</li>
+              <li>See <code className="text-primary-400 bg-slate-900 px-1 rounded">BACKEND-SETUP-GUIDE.md</code></li>
+            </ul>
+          </li>
+          <li>Click "Save Configuration" to save frontend-safe settings</li>
           <li>Restart the development server: <code className="text-primary-400 bg-slate-900 px-1 rounded">npm run dev</code></li>
         </ol>
         
         <div className="mt-4 pt-4 border-t border-slate-700">
           <p className="text-sm text-yellow-300">
-            <strong>Note:</strong> For organization-wide scanning (all emails/Teams chats), you'll need admin-level permissions. 
-            See <code className="text-primary-400 bg-slate-900 px-1 rounded">ORGANIZATION-WIDE-SCANNING.md</code> for details.
+            <strong>Organization-Wide Scanning:</strong> Requires backend server with admin-level API permissions. 
+            See <code className="text-primary-400 bg-slate-900 px-1 rounded">IMPLEMENTATION-GUIDE.md</code> for complete setup.
           </p>
         </div>
       </div>
