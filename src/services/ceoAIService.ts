@@ -113,6 +113,71 @@ function formatContextForLLM(context: CEOContext): string {
 }
 
 /**
+ * Format company context for LLM
+ */
+function formatCompanyContext(companyContext: any): string {
+  let prompt = `# Company Context\n\n`;
+  
+  if (companyContext.company) {
+    const company = companyContext.company;
+    prompt += `## ${company.name}\n`;
+    prompt += `**Industry:** ${company.industry}\n`;
+    prompt += `**Description:** ${company.description}\n\n`;
+    
+    if (company.strategicPosition) {
+      prompt += `**Strategic Position:** ${company.strategicPosition}\n\n`;
+    }
+    
+    if (company.keyGoals?.length) {
+      prompt += `**Key Goals:**\n`;
+      company.keyGoals.forEach((goal: string) => prompt += `- ${goal}\n`);
+      prompt += `\n`;
+    }
+    
+    if (company.competitors?.length) {
+      prompt += `**Competitors:** ${company.competitors.join(', ')}\n\n`;
+    }
+    
+    if (company.keyMetrics) {
+      prompt += `**Key Metrics:**\n`;
+      Object.entries(company.keyMetrics).forEach(([key, value]) => {
+        prompt += `- ${key}: ${value}\n`;
+      });
+      prompt += `\n`;
+    }
+  }
+  
+  if (companyContext.historicalDecisions?.length) {
+    prompt += `## Recent Strategic Decisions\n`;
+    companyContext.historicalDecisions.slice(0, 5).forEach((decision: any) => {
+      const date = new Date(decision.date).toLocaleDateString();
+      prompt += `- **${date}:** ${decision.decision}\n`;
+      if (decision.outcome) {
+        prompt += `  Outcome: ${decision.outcome}\n`;
+      }
+    });
+    prompt += `\n`;
+  }
+  
+  if (companyContext.marketIntelligence) {
+    prompt += `## Market Intelligence\n`;
+    prompt += `${companyContext.marketIntelligence}\n\n`;
+  }
+  
+  if (companyContext.competitorActivity) {
+    prompt += `## Competitor Activity\n`;
+    prompt += `${companyContext.competitorActivity}\n\n`;
+  }
+  
+  if (companyContext.industryTrends) {
+    prompt += `## Industry Trends\n`;
+    prompt += `${companyContext.industryTrends}\n\n`;
+  }
+  
+  return prompt;
+}
+
+/**
  * Generate CEO-focused strategic response using Claude 3.5 Sonnet
  */
 export async function generateCEOResponse(
