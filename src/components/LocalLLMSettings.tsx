@@ -51,15 +51,26 @@ export default function LocalLLMSettings() {
 
   const handleEnableLocal = () => {
     localStorage.setItem('use_local_llm', 'true');
-    setIsLocalEnabled(true); // BUG FIX: Update state to trigger re-render
-    alert('Local LLM enabled! All queries will now use Ollama (100% private).');
+    localStorage.removeItem('use_hybrid_llm'); // Clear hybrid mode
+    setIsLocalEnabled(true);
+    alert('✅ Local LLM enabled! All queries will now use Ollama (100% private).');
   };
 
   const handleDisableLocal = () => {
     localStorage.setItem('use_local_llm', 'false');
-    setIsLocalEnabled(false); // BUG FIX: Update state to trigger re-render
-    alert('Cloud API enabled. WARNING: Company data will be sent to Anthropic.');
+    localStorage.removeItem('use_hybrid_llm'); // Clear hybrid mode
+    setIsLocalEnabled(false);
+    alert('⚠️ Cloud API enabled. WARNING: Company data will be sent to Anthropic.');
   };
+
+  const handleEnableHybrid = () => {
+    localStorage.setItem('use_hybrid_llm', 'true');
+    localStorage.setItem('use_local_llm', 'true'); // Enable local as base
+    setIsLocalEnabled(true);
+    alert('🔄 Hybrid mode enabled! Local LLM for sensitive queries, Cloud API for non-sensitive.');
+  };
+
+  const isHybridEnabled = localStorage.getItem('use_hybrid_llm') === 'true';
 
   return (
     <div className="space-y-6">
@@ -272,15 +283,25 @@ export default function LocalLLMSettings() {
         <div className="space-y-4">
           {/* Current Mode */}
           <div className={`p-4 rounded-lg border-2 ${
-            isLocalEnabled 
+            isHybridEnabled
+              ? 'bg-blue-900/20 border-blue-700/50'
+              : isLocalEnabled 
               ? 'bg-green-900/20 border-green-700/50' 
               : 'bg-red-900/20 border-red-700/50'
           }`}>
-            <p className={`font-medium mb-2 ${isLocalEnabled ? 'text-green-400' : 'text-red-400'}`}>
-              {isLocalEnabled ? '🔒 Using Local LLM (Privacy Mode)' : '☁️ Using Cloud API'}
+            <p className={`font-medium mb-2 ${
+              isHybridEnabled ? 'text-blue-400' : isLocalEnabled ? 'text-green-400' : 'text-red-400'
+            }`}>
+              {isHybridEnabled 
+                ? '🔄 Using Hybrid Mode (Smart Selection)' 
+                : isLocalEnabled 
+                ? '🔒 Using Local LLM (Privacy Mode)' 
+                : '☁️ Using Cloud API'}
             </p>
             <p className="text-sm text-gray-300">
-              {isLocalEnabled 
+              {isHybridEnabled
+                ? 'Automatically uses Local LLM for sensitive queries, Cloud API for general questions.'
+                : isLocalEnabled 
                 ? 'All AI processing happens locally. Your data NEVER leaves your computer.'
                 : 'Company data is sent to Anthropic servers for processing.'}
             </p>
@@ -295,7 +316,7 @@ export default function LocalLLMSettings() {
               onClick={handleEnableLocal}
               disabled={!status.running}
               className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-colors ${
-                isLocalEnabled && status.running
+                isLocalEnabled && !isHybridEnabled && status.running
                   ? 'border-green-600 bg-green-900/20'
                   : 'border-slate-700 bg-slate-900 hover:border-green-600/50'
               } ${!status.running ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -303,7 +324,12 @@ export default function LocalLLMSettings() {
               <div className="flex items-start gap-3">
                 <Lock className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
-                  <p className="font-medium text-white">Local Only (Recommended)</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium text-white">Local Only (Recommended)</p>
+                    {isLocalEnabled && !isHybridEnabled && (
+                      <span className="px-2 py-0.5 bg-green-600 text-white text-xs rounded">Active</span>
+                    )}
+                  </div>
                   <p className="text-sm text-gray-400 mt-1">
                     100% private, $0 cost, works offline. Use Ollama for all queries.
                   </p>
@@ -320,7 +346,7 @@ export default function LocalLLMSettings() {
             <button
               onClick={handleDisableLocal}
               className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-colors ${
-                !isLocalEnabled
+                !isLocalEnabled && !isHybridEnabled
                   ? 'border-red-600 bg-red-900/20'
                   : 'border-slate-700 bg-slate-900 hover:border-red-600/50'
               }`}
@@ -328,7 +354,12 @@ export default function LocalLLMSettings() {
               <div className="flex items-start gap-3">
                 <div className="w-5 h-5 flex items-center justify-center text-red-400 flex-shrink-0 mt-0.5">☁️</div>
                 <div className="flex-1">
-                  <p className="font-medium text-white">Cloud API Only</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium text-white">Cloud API Only</p>
+                    {!isLocalEnabled && !isHybridEnabled && (
+                      <span className="px-2 py-0.5 bg-red-600 text-white text-xs rounded">Active</span>
+                    )}
+                  </div>
                   <p className="text-sm text-gray-400 mt-1">
                     Fast responses, requires API key, ~$0.01-0.10 per query.
                   </p>
@@ -339,21 +370,36 @@ export default function LocalLLMSettings() {
               </div>
             </button>
 
-            {/* Hybrid Mode (Coming Soon) */}
-            <div className="px-4 py-3 rounded-lg border-2 border-slate-700 bg-slate-900/50 opacity-60">
+            {/* Hybrid Mode */}
+            <button
+              onClick={handleEnableHybrid}
+              disabled={!status.running}
+              className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-colors ${
+                isHybridEnabled
+                  ? 'border-blue-600 bg-blue-900/20'
+                  : 'border-slate-700 bg-slate-900 hover:border-blue-600/50'
+              } ${!status.running ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
               <div className="flex items-start gap-3">
                 <div className="w-5 h-5 flex items-center justify-center text-blue-400 flex-shrink-0 mt-0.5">🔄</div>
                 <div className="flex-1">
-                  <p className="font-medium text-white flex items-center gap-2">
-                    Hybrid Mode
-                    <span className="text-xs px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded">Coming Soon</span>
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium text-white">Hybrid Mode (Smart)</p>
+                    {isHybridEnabled && (
+                      <span className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded">Active</span>
+                    )}
+                  </div>
                   <p className="text-sm text-gray-400 mt-1">
-                    Use local LLM for sensitive queries, cloud for non-sensitive ones. Automatic fallback.
+                    Local LLM for sensitive company data, Cloud API for general queries. Best of both worlds.
                   </p>
+                  {!status.running && (
+                    <p className="text-xs text-yellow-400 mt-1">
+                      ⚠️ Requires Ollama for local processing
+                    </p>
+                  )}
                 </div>
               </div>
-            </div>
+            </button>
           </div>
         </div>
       </div>

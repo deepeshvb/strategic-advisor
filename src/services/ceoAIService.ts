@@ -123,16 +123,109 @@ export async function generateCEOResponse(
   // Format all communication context
   const contextPrompt = formatContextForLLM(context);
   
-  // Validate API key
+  // Check for hybrid mode
+  const useHybrid = localStorage.getItem('use_hybrid_llm') === 'true';
+  const useLocal = localStorage.getItem('use_local_llm') !== 'false';
+  
+  // Hybrid mode: route based on sensitivity
+  if (useHybrid) {
+    const isSensitive = isSensitiveQuery(userMessage);
+    console.log(`🔄 Hybrid mode: Query classified as ${isSensitive ? 'SENSITIVE (using local)' : 'GENERAL (using cloud)'}`);
+    
+    if (isSensitive) {
+      // Use local for sensitive queries
+      const status = await localLLMService.checkStatus();
+      if (status.running) {
+        try {
+          console.log('🔒 Using local LLM for sensitive query...');
+          const companyContext = await companyService.buildCompanyContext();
+          const fullContext = companyContext 
+            ? formatCompanyContext(companyContext) + '\n\n' + contextPrompt + '\n\n' + userMessage
+            : contextPrompt + '\n\n' + userMessage;
+          
+          const response = await localLLMService.generateResponse(fullContext, AGI_STRATEGIC_PROMPT);
+          return {
+            id: `msg-${Date.now()}`,
+            role: 'assistant',
+            content: response,
+            timestamp: new Date(),
+            metadata: {
+              privacy: 'local',
+              mode: 'hybrid-sensitive',
+            },
+          };
+        } catch (error: any) {
+          return {
+            id: `msg-${Date.now()}`,
+            role: 'assistant',
+            content: `❌ Local LLM unavailable for sensitive query.\n\n${error.message}`,
+            timestamp: new Date(),
+          };
+        }
+      } else {
+        return {
+          id: `msg-${Date.now()}`,
+          role: 'assistant',
+          content: 'Local LLM required for sensitive queries in Hybrid mode.\n\nPlease:\n1. Install Ollama from https://ollama.ai\n2. Run: ollama pull llama3.1:70b\n3. Or switch to Cloud API Only in Settings',
+          timestamp: new Date(),
+        };
+      }
+    }
+    // For non-sensitive queries in hybrid mode, continue to cloud API below
+    console.log('☁️ Using cloud API for general query...');
+  }
+  
+  // Local-only mode
+  if (useLocal && !useHybrid) {
+    const status = await localLLMService.checkStatus();
+    if (status.running) {
+      try {
+        console.log('🔒 Using local LLM...');
+        const companyContext = await companyService.buildCompanyContext();
+        const fullContext = companyContext 
+          ? formatCompanyContext(companyContext) + '\n\n' + contextPrompt + '\n\n' + userMessage
+          : contextPrompt + '\n\n' + userMessage;
+        
+        const response = await localLLMService.generateResponse(fullContext, AGI_STRATEGIC_PROMPT);
+        return {
+          id: `msg-${Date.now()}`,
+          role: 'assistant',
+          content: response,
+          timestamp: new Date(),
+          metadata: {
+            privacy: 'local',
+            mode: 'local-only',
+          },
+        };
+      } catch (error: any) {
+        console.error('Local LLM failed:', error);
+        return {
+          id: `msg-${Date.now()}`,
+          role: 'assistant',
+          content: `❌ Local LLM Error\n\n${error.message}`,
+          timestamp: new Date(),
+        };
+      }
+    } else {
+      return {
+        id: `msg-${Date.now()}`,
+        role: 'assistant',
+        content: 'Local LLM not available.\n\nPlease:\n1. Install Ollama from https://ollama.ai\n2. Run: ollama pull llama3.1:70b\n3. Or enable Cloud API in Settings',
+        timestamp: new Date(),
+      };
+    }
+  }
+  
+  // Cloud API mode (default fallback)
   const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
   
-  if (!apiKey) {
+  if (!apiKey || apiKey === 'placeholder-using-local-llm') {
     console.error('VITE_ANTHROPIC_API_KEY is not set in environment variables');
     console.error('Available env vars:', Object.keys(import.meta.env));
     return {
       id: `msg-${Date.now()}`,
       role: 'assistant',
-      content: 'Configuration Error: VITE_ANTHROPIC_API_KEY not found in .env file.\n\nPlease ensure:\n1. .env file exists in the root directory\n2. Contains: VITE_ANTHROPIC_API_KEY=sk-ant-...\n3. Restart the dev server after adding the key (Ctrl+C then npm run dev)',
+      content: 'Configuration Error: VITE_ANTHROPIC_API_KEY not found in .env file.\n\nPlease ensure:\n1. .env file exists in the root directory\n2. Contains: VITE_ANTHROPIC_API_KEY=sk-ant-...\n3. Restart the dev server after adding the key (Ctrl+C then npm run dev)\n\nOr use Local LLM instead:\n1. Install Ollama from https://ollama.ai\n2. Enable Local LLM in Settings',
       timestamp: new Date(),
     };
   }
@@ -256,4 +349,36 @@ export async function getClarificationStrategy(
     `I'm seeing conflicting or ambiguous information about: ${ambiguousSituation}. Help me develop a strategy to get clarity. What questions should I ask, who should I talk to, and in what order?`,
     context
   );
+}
+
+/**
+ * Determine if we should use local LLM based on user settings
+ */
+async function shouldUseLocalLLM(): Promise<boolean> {
+  const useLocal = localStorage.getItem('use_local_llm') !== 'false';
+  if (!useLocal) return false;
+  
+  const status = await localLLMService.checkStatus();
+  return status.running;
+}
+
+/**
+ * Determine if a query contains sensitive company information
+ * Used in hybrid mode to route to local vs cloud LLM
+ */
+function isSensitiveQuery(message: string): boolean {
+  const sensitivePhrases = [
+    'email', 'teams chat', 'slack', 'discord',
+    'financial', 'revenue', 'profit', 'budget', 'salary', 'compensation',
+    'conflict', 'issue', 'problem', 'dispute',
+    'confidential', 'private', 'internal',
+    'strategy', 'roadmap', 'acquisition', 'merger',
+    'competitor', 'competitive',
+    'employee', 'personnel', 'team member',
+    'project', 'initiative', 'launch',
+    'othain', 'strivio', 'jersey technology'
+  ];
+  
+  const lowerMessage = message.toLowerCase();
+  return sensitivePhrases.some(phrase => lowerMessage.includes(phrase));
 }

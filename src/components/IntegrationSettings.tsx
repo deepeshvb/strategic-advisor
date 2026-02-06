@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings, CheckCircle2, XCircle, Loader2, Eye, EyeOff, Save, Plus } from 'lucide-react';
+import { Settings, CheckCircle2, XCircle, Loader2, Eye, EyeOff, Save, Plus, AlertCircle } from 'lucide-react';
 
 interface IntegrationConfig {
   id: string;
@@ -222,10 +222,37 @@ export default function IntegrationSettings() {
       type: 'slack',
       enabled: false,
       status: 'not-configured',
+      requiresBackend: false,
       fields: [
-        { key: 'VITE_SLACK_CLIENT_ID', label: 'Client ID', type: 'text', value: '', required: true },
-        { key: 'VITE_SLACK_CLIENT_SECRET', label: 'Client Secret', type: 'password', value: '', required: true },
-        { key: 'VITE_SLACK_BOT_TOKEN', label: 'Bot Token', type: 'password', value: '', required: true },
+        { 
+          key: 'VITE_SLACK_CLIENT_ID', 
+          label: 'Client ID', 
+          type: 'text', 
+          value: '', 
+          required: true,
+          frontendSafe: true,
+          description: 'From Slack App configuration'
+        },
+        { 
+          key: 'VITE_SLACK_CLIENT_SECRET', 
+          label: 'Client Secret', 
+          type: 'password', 
+          value: '', 
+          required: true,
+          frontendSafe: false,
+          backendOnly: true,
+          description: '⚠️ BACKEND ONLY - Slack app secret'
+        },
+        { 
+          key: 'VITE_SLACK_BOT_TOKEN', 
+          label: 'Bot Token', 
+          type: 'password', 
+          value: '', 
+          required: true,
+          frontendSafe: false,
+          backendOnly: true,
+          description: '⚠️ BACKEND ONLY - Bot user OAuth token'
+        },
       ],
     },
     {
@@ -424,7 +451,7 @@ export default function IntegrationSettings() {
       const envContent = generateEnvFile(integrations);
       
       // Show save message with instructions
-      setSaveMessage('Configuration saved! Copy the content below and add to your .env file, then restart the dev server.');
+      setSaveMessage('✅ Configuration saved! Copy the content below and add to your .env file, then restart the dev server.');
       
       // In a real implementation, you might want to:
       // 1. Send to backend to update .env file
@@ -433,7 +460,7 @@ export default function IntegrationSettings() {
       
       setTimeout(() => setSaveMessage(''), 5000);
     } catch (error) {
-      setSaveMessage('Error saving configuration. Please try again.');
+      setSaveMessage('❌ Error saving configuration. Please try again.');
       console.error('Save error:', error);
     } finally {
       setSaving(false);
@@ -443,7 +470,7 @@ export default function IntegrationSettings() {
   const generateEnvFile = (configs: IntegrationConfig[]) => {
     let content = '# Strategic Advisor - Integration Configuration\n';
     content += '# Generated: ' + new Date().toISOString() + '\n\n';
-    content += '# Anthropic AI (Required)\n';
+    content += '# Anthropic AI (Required for Cloud API mode)\n';
     content += 'VITE_ANTHROPIC_API_KEY=your_existing_key_here\n\n';
 
     configs.forEach(integration => {
@@ -462,7 +489,7 @@ export default function IntegrationSettings() {
   const copyEnvToClipboard = () => {
     const envContent = generateEnvFile(integrations);
     navigator.clipboard.writeText(envContent);
-    setSaveMessage('Copied to clipboard! Paste into your .env file.');
+    setSaveMessage('📋 Copied to clipboard! Paste into your .env file.');
     setTimeout(() => setSaveMessage(''), 3000);
   };
 
@@ -497,8 +524,14 @@ export default function IntegrationSettings() {
 
       {/* Save Message */}
       {saveMessage && (
-        <div className="bg-green-900/20 border border-green-700/50 rounded-lg p-4">
-          <p className="text-green-200">{saveMessage}</p>
+        <div className={`border rounded-lg p-4 ${
+          saveMessage.includes('Error') || saveMessage.includes('❌')
+            ? 'bg-red-900/20 border-red-700/50'
+            : 'bg-green-900/20 border-green-700/50'
+        }`}>
+          <p className={saveMessage.includes('Error') || saveMessage.includes('❌') ? 'text-red-200' : 'text-green-200'}>
+            {saveMessage}
+          </p>
           {saveMessage.includes('Copy') && (
             <button
               onClick={copyEnvToClipboard}
@@ -600,7 +633,7 @@ export default function IntegrationSettings() {
                           Selected: {field.value}
                         </div>
                       )}
-                      {field.type === 'password' && (
+                      {field.type === 'password' && !field.backendOnly && (
                         <button
                           onClick={() => togglePasswordVisibility(field.key)}
                           className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300"
@@ -621,8 +654,7 @@ export default function IntegrationSettings() {
                     href="#"
                     onClick={(e) => {
                       e.preventDefault();
-                      // Open setup guide for this integration
-                      window.open(`/REAL-INTEGRATIONS-SETUP.md#${integration.id}`, '_blank');
+                      alert('See IMPLEMENTATION-GUIDE.md for detailed setup instructions');
                     }}
                     className="text-sm text-primary-400 hover:text-primary-300 flex items-center gap-1"
                   >
