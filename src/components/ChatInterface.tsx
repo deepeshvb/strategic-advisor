@@ -441,15 +441,15 @@ export default function ChatInterface({ context: _context }: ChatInterfaceProps)
         <IntegrationStatus />
       </div>
       
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* Messages - Mobile Responsive */}
+      <div className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-2 sm:space-y-4">
         {messages.map((message) => (
           <div
             key={message.id}
             className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div
-              className={`max-w-[80%] rounded-lg p-4 ${
+              className={`max-w-full sm:max-w-[85%] md:max-w-[80%] rounded-lg p-3 sm:p-4 ${
                 message.role === 'user'
                   ? 'bg-primary-600 text-white'
                   : 'bg-slate-700 text-gray-100'

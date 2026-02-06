@@ -8,6 +8,7 @@ import { mockChannels, mockPriorities, mockInsights } from './services/mockData'
 import { Channel, Priority, Insight } from './types';
 import { companyService } from './services/companyService';
 import { INITIAL_COMPANIES } from './data/initialCompanies';
+import { backgroundMonitor } from './services/backgroundMonitor';
 
 type View = 'chat' | 'dashboard' | 'settings';
 
@@ -26,6 +27,17 @@ function App() {
         companyService.addCompany(company);
       });
     }
+  }, []);
+
+  // Start background monitoring
+  useEffect(() => {
+    console.log('🚀 Starting background monitoring service...');
+    backgroundMonitor.start();
+
+    // Cleanup on unmount
+    return () => {
+      backgroundMonitor.stop();
+    };
   }, []);
 
   const handlePriorityToggle = (id: string) => {
@@ -62,38 +74,38 @@ function App() {
 
   return (
     <div className="flex h-screen bg-slate-900">
-      {/* Sidebar */}
-      <div className="w-64 bg-slate-800 border-r border-slate-700 flex flex-col">
+      {/* Mobile-Responsive Sidebar */}
+      <div className="hidden md:flex w-48 lg:w-64 bg-slate-800 border-r border-slate-700 flex-col">
         {/* Logo */}
-        <div className="p-6 border-b border-slate-700">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-lg flex items-center justify-center">
-              <Bot className="w-6 h-6 text-white" />
+        <div className="p-4 lg:p-6 border-b border-slate-700">
+          <div className="flex items-center gap-2 lg:gap-3">
+            <div className="w-8 h-8 lg:w-10 lg:h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-lg flex items-center justify-center">
+              <Bot className="w-5 h-5 lg:w-6 lg:h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-white font-bold text-lg">Strategic</h1>
-              <p className="text-gray-400 text-xs">Coworker</p>
+              <h1 className="text-white font-bold text-base lg:text-lg">Strategic</h1>
+              <p className="text-gray-400 text-[10px] lg:text-xs">Coworker</p>
             </div>
           </div>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-4">
-          <div className="space-y-2">
+        <nav className="flex-1 p-3 lg:p-4">
+          <div className="space-y-1 lg:space-y-2">
             {navItems.map((item) => {
               const Icon = item.icon;
               return (
                 <button
                   key={item.id}
                   onClick={() => setCurrentView(item.id)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                  className={`w-full flex items-center gap-2 lg:gap-3 px-3 lg:px-4 py-2 lg:py-3 rounded-lg transition-colors ${
                     currentView === item.id
                       ? 'bg-primary-600 text-white'
                       : 'text-gray-400 hover:bg-slate-700 hover:text-white'
                   }`}
                 >
-                  <Icon className="w-5 h-5" />
-                  <span className="font-medium">{item.label}</span>
+                  <Icon className="w-4 h-4 lg:w-5 lg:h-5" />
+                  <span className="font-medium text-sm lg:text-base">{item.label}</span>
                 </button>
               );
             })}
@@ -101,15 +113,15 @@ function App() {
         </nav>
 
         {/* Company Selector */}
-        <div className="p-4 border-t border-slate-700">
+        <div className="p-3 lg:p-4 border-t border-slate-700">
           <CompanySelector />
         </div>
 
         {/* Stats */}
-        <div className="p-4">
-          <div className="bg-slate-700 rounded-lg p-4">
-            <h3 className="text-white font-medium mb-3">Quick Stats</h3>
-            <div className="space-y-2 text-sm">
+        <div className="p-3 lg:p-4">
+          <div className="bg-slate-700 rounded-lg p-3 lg:p-4">
+            <h3 className="text-white font-medium mb-2 lg:mb-3 text-sm lg:text-base">Quick Stats</h3>
+            <div className="space-y-1.5 lg:space-y-2 text-xs lg:text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-400">Active Channels</span>
                 <span className="text-white font-medium">
@@ -133,8 +145,31 @@ function App() {
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col">
+      {/* Mobile Bottom Navigation */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-800 border-t border-slate-700 z-50">
+        <div className="flex justify-around p-2">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setCurrentView(item.id)}
+                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors ${
+                  currentView === item.id
+                    ? 'text-primary-400'
+                    : 'text-gray-400'
+                }`}
+              >
+                <Icon className="w-5 h-5" />
+                <span className="text-[10px] font-medium">{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Main Content - Mobile Responsive */}
+      <div className="flex-1 flex flex-col mb-16 md:mb-0">
         {currentView === 'chat' && <ChatInterface context={context} />}
         {currentView === 'dashboard' && (
           <Dashboard
