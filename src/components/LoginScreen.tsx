@@ -12,6 +12,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [step, setStep] = useState<'phone' | 'code'>('phone');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [devMode, setDevMode] = useState(true); // Enable dev mode by default
 
   const handleSendCode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,6 +20,14 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     setLoading(true);
 
     try {
+      // In dev mode, skip to code step immediately (no actual SMS sent)
+      if (devMode) {
+        console.log('📱 Dev Mode: Skipping SMS, proceeding to login');
+        setStep('code');
+        setLoading(false);
+        return;
+      }
+
       const result = await authService.sendVerificationCode(phoneNumber);
       if (result.success) {
         setStep('code');
@@ -27,6 +36,25 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       }
     } catch (err) {
       setError('Failed to send verification code');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDevModeLogin = async () => {
+    setError('');
+    setLoading(true);
+
+    try {
+      // Dev mode: Login without verification code
+      const result = await authService.login(phoneNumber, '');
+      if (result.success) {
+        onLoginSuccess();
+      } else {
+        setError(result.message || 'Login failed');
+      }
+    } catch (err) {
+      setError('An error occurred during login');
     } finally {
       setLoading(false);
     }
@@ -111,9 +139,22 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 )}
               </button>
 
-              <p className="text-xs text-center text-gray-500">
-                A 6-digit verification code will be sent to your phone
-              </p>
+              {devMode ? (
+                <div className="space-y-2">
+                  <div className="p-3 bg-blue-900/30 border border-blue-700 rounded-lg">
+                    <p className="text-xs text-blue-300 text-center">
+                      🔧 <strong>Development Mode Active</strong>
+                    </p>
+                    <p className="text-xs text-blue-200 text-center mt-1">
+                      No SMS will be sent. Click continue to login without verification.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-center text-gray-500">
+                  A 6-digit verification code will be sent to your phone
+                </p>
+              )}
             </form>
           ) : (
             <form onSubmit={handleLogin} className="space-y-6">
@@ -143,23 +184,60 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               )}
 
               <div className="space-y-3">
-                <button
-                  type="submit"
-                  disabled={loading || verificationCode.length !== 6}
-                  className="w-full flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors"
-                >
-                  {loading ? (
-                    <>
-                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                      <span>Verifying...</span>
-                    </>
-                  ) : (
-                    <>
-                      <LogIn className="w-5 h-5" />
-                      <span>Login</span>
-                    </>
-                  )}
-                </button>
+                {devMode && (
+                  <div className="p-3 bg-blue-900/30 border border-blue-700 rounded-lg mb-3">
+                    <p className="text-xs text-blue-300 text-center">
+                      🔧 <strong>Development Mode</strong> - SMS verification disabled
+                    </p>
+                  </div>
+                )}
+
+                {devMode ? (
+                  // Dev Mode: Login without code
+                  <button
+                    type="button"
+                    onClick={handleDevModeLogin}
+                    disabled={loading}
+                    className="w-full flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors"
+                  >
+                    {loading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                        <span>Logging in...</span>
+                      </>
+                    ) : (
+                      <>
+                        <LogIn className="w-5 h-5" />
+                        <span>Login Without Code (Dev Mode)</span>
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  // Production Mode: Require code
+                  <button
+                    type="submit"
+                    disabled={loading || verificationCode.length !== 6}
+                    className="w-full flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors"
+                  >
+                    {loading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                        <span>Verifying...</span>
+                      </>
+                    ) : (
+                      <>
+                        <LogIn className="w-5 h-5" />
+                        <span>Login</span>
+                      </>
+                    )}
+                  </button>
+                )}
+
+                {devMode && (
+                  <p className="text-xs text-center text-gray-500">
+                    Or enter any 6-digit code above to test production flow
+                  </p>
+                )}
 
                 <button
                   type="button"
