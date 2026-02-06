@@ -1,14 +1,13 @@
 {
-  "name": "Strategic Advisor - AGI Intelligence",
-  "short_name": "StrategicAI",
-  "description": "AGI-powered strategic intelligence advisor for CEOs and founders",
-  "theme_color": "#10b981",
-  "background_color": "#1e293b",
+  "name": "Strategic Advisor - CEO Intelligence System",
+  "short_name": "Strategic Advisor",
+  "description": "AI-powered strategic intelligence system with real-time alerts and voice commands",
+  "start_url": "/",
   "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#3b82f6",
   "orientation": "portrait-primary",
   "scope": "/",
-  "start_url": "/",
-  "categories": ["business", "productivity", "utilities"],
   "icons": [
     {
       "src": "/icon-192.png",
@@ -23,35 +22,59 @@
       "purpose": "any maskable"
     }
   ],
-  "screenshots": [
-    {
-      "src": "/screenshot-mobile.png",
-      "sizes": "540x720",
-      "type": "image/png",
-      "form_factor": "narrow"
-    },
-    {
-      "src": "/screenshot-desktop.png",
-      "sizes": "1280x720",
-      "type": "image/png",
-      "form_factor": "wide"
-    }
+  "categories": [
+    "business",
+    "productivity",
+    "utilities"
   ],
   "shortcuts": [
     {
-      "name": "Quick Brief",
-      "short_name": "Brief",
-      "description": "Get a quick CEO briefing",
-      "url": "/?query=brief",
-      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+      "name": "Ask Strategic Advisor",
+      "short_name": "Ask",
+      "description": "Query your strategic advisor",
+      "url": "/?action=ask",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
     {
-      "name": "What's Urgent",
-      "short_name": "Urgent",
-      "description": "Check urgent items",
-      "url": "/?query=urgent",
-      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+      "name": "View Critical Items",
+      "short_name": "Critical",
+      "description": "See critical items requiring attention",
+      "url": "/?action=critical",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "View dashboard overview",
+      "url": "/?view=dashboard",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ],
-  "prefer_related_applications": false
+  "related_applications": [],
+  "prefer_related_applications": false,
+  "share_target": {
+    "action": "/share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
 }

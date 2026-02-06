@@ -35,10 +35,18 @@ class VoiceAlertService {
     if (stored) {
       try {
         const settings = JSON.parse(stored);
-        this.enabled = settings.enabled !== false;
+        this.enabled = settings.enabled === true; // Explicitly check for true
+        console.log('🔊 Voice alerts loaded:', this.enabled ? 'ENABLED' : 'DISABLED');
       } catch (e) {
         console.error('Failed to load voice alert settings:', e);
+        this.enabled = false; // Default to disabled on error
       }
+    } else {
+      // First time - default to enabled on mobile devices
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      this.enabled = isMobile;
+      this.saveSettings(this.enabled);
+      console.log('🔊 Voice alerts initialized (first time):', this.enabled ? 'ENABLED' : 'DISABLED');
     }
   }
 
@@ -47,7 +55,9 @@ class VoiceAlertService {
    */
   saveSettings(enabled: boolean) {
     this.enabled = enabled;
-    localStorage.setItem('voice_alert_settings', JSON.stringify({ enabled }));
+    const settings = { enabled, timestamp: new Date().toISOString() };
+    localStorage.setItem('voice_alert_settings', JSON.stringify(settings));
+    console.log('💾 Voice alerts saved:', enabled ? 'ENABLED' : 'DISABLED');
   }
 
   /**

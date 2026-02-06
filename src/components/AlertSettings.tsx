@@ -13,6 +13,17 @@ export default function AlertSettings() {
   useEffect(() => {
     alertService.loadConfig();
     setConfig(alertService.getConfig());
+    
+    // Load voice settings and update state
+    const voiceSettings = localStorage.getItem('voice_alert_settings');
+    if (voiceSettings) {
+      try {
+        const settings = JSON.parse(voiceSettings);
+        setVoiceEnabled(settings.enabled !== false);
+      } catch (e) {
+        console.error('Failed to load voice settings:', e);
+      }
+    }
   }, []);
 
   const handleSave = () => {

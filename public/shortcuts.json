@@ -1,0 +1,40 @@
+{
+  "shortcuts": [
+    {
+      "name": "Ask Strategic Advisor",
+      "short_name": "Ask",
+      "description": "Ask your Strategic Advisor a question",
+      "url": "/?voice=true",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Check Urgent Items",
+      "short_name": "Urgent",
+      "description": "View your urgent items",
+      "url": "/?urgent=true",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "View Dashboard",
+      "short_name": "Dashboard",
+      "description": "Open Strategic Advisor dashboard",
+      "url": "/?view=dashboard",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}
