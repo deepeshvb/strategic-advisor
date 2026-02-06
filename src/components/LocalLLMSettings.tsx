@@ -50,24 +50,56 @@ export default function LocalLLMSettings() {
   };
 
   const handleEnableLocal = () => {
-    localStorage.setItem('use_local_llm', 'true');
-    localStorage.removeItem('use_hybrid_llm'); // Clear hybrid mode
-    setIsLocalEnabled(true);
-    alert('✅ Local LLM enabled! All queries will now use Ollama (100% private).');
+    const confirmed = window.confirm(
+      '🔒 Switch to Local Only Mode?\n\n' +
+      'All queries will use Ollama (100% private).\n' +
+      '• Your data NEVER leaves your computer\n' +
+      '• $0 cost\n' +
+      '• Requires Ollama to be running\n\n' +
+      'Click OK to enable Local Only mode.'
+    );
+    
+    if (confirmed) {
+      localStorage.setItem('use_local_llm', 'true');
+      localStorage.removeItem('use_hybrid_llm');
+      setIsLocalEnabled(true);
+    }
   };
 
   const handleDisableLocal = () => {
-    localStorage.setItem('use_local_llm', 'false');
-    localStorage.removeItem('use_hybrid_llm'); // Clear hybrid mode
-    setIsLocalEnabled(false);
-    alert('⚠️ Cloud API enabled. WARNING: Company data will be sent to Anthropic.');
+    const confirmed = window.confirm(
+      '☁️ Switch to Cloud API Only Mode?\n\n' +
+      '⚠️ WARNING: Company data will be sent to Anthropic servers.\n' +
+      '• Fast responses\n' +
+      '• Costs ~$0.01-0.10 per query\n' +
+      '• Requires valid API key\n' +
+      '• Data leaves your network\n\n' +
+      'Click OK to enable Cloud API mode, or Cancel to keep current settings.'
+    );
+    
+    if (confirmed) {
+      localStorage.setItem('use_local_llm', 'false');
+      localStorage.removeItem('use_hybrid_llm');
+      setIsLocalEnabled(false);
+    }
   };
 
   const handleEnableHybrid = () => {
-    localStorage.setItem('use_hybrid_llm', 'true');
-    localStorage.setItem('use_local_llm', 'true'); // Enable local as base
-    setIsLocalEnabled(true);
-    alert('🔄 Hybrid mode enabled! Local LLM for sensitive queries, Cloud API for non-sensitive.');
+    const confirmed = window.confirm(
+      '🔄 Switch to Hybrid Mode?\n\n' +
+      'Smart routing based on query sensitivity:\n' +
+      '• Sensitive queries → Local LLM (private)\n' +
+      '• General queries → Cloud API (fast)\n' +
+      '• Requires both Ollama and API key\n' +
+      '• Best of both worlds\n\n' +
+      'Click OK to enable Hybrid mode.'
+    );
+    
+    if (confirmed) {
+      localStorage.setItem('use_hybrid_llm', 'true');
+      localStorage.setItem('use_local_llm', 'true');
+      setIsLocalEnabled(true);
+    }
   };
 
   const isHybridEnabled = localStorage.getItem('use_hybrid_llm') === 'true';
