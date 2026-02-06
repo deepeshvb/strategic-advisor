@@ -11,7 +11,7 @@ export default function SettingsView() {
 
   const tabs = [
     { id: 'companies' as SettingsTab, icon: Building2, label: 'Companies' },
-    { id: 'llm' as SettingsTab, icon: Cpu, label: 'Local LLM' },
+    { id: 'llm' as SettingsTab, icon: Cpu, label: 'LLM Strategy' },
     { id: 'integrations' as SettingsTab, icon: Settings, label: 'Integrations' },
   ];
 

@@ -76,8 +76,8 @@ export default function LocalLLMSettings() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold text-white mb-2">Local LLM Configuration</h2>
-        <p className="text-gray-400">100% Private AI - Your data NEVER leaves your computer</p>
+        <h2 className="text-2xl font-bold text-white mb-2">LLM Strategy</h2>
+        <p className="text-gray-400">Choose how AI processes your queries: Local (private), Cloud (fast), or Hybrid (best of both)</p>
       </div>
 
       {/* Privacy Banner */}
