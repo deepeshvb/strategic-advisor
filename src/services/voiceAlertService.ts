@@ -247,14 +247,45 @@ class VoiceAlertService {
    * Test voice alerts
    */
   test() {
-    this.announceAlert(
-      'Test Alert',
-      'This is a test of the voice alert system. If you can hear this, voice alerts are working correctly.',
-      {
-        priority: 'medium',
-        interrupt: false,
-      }
+    console.log('🔊 Testing voice alert...');
+    console.log('Speech synthesis available:', this.synthesis !== null);
+    console.log('Enabled:', this.enabled);
+    console.log('Device supports voice:', deviceService.supportsVoice());
+    
+    // Force enable for testing if synthesis is available
+    if (this.synthesis && !this.enabled) {
+      console.log('⚠️ Voice is disabled, but forcing test anyway');
+    }
+    
+    if (!this.synthesis) {
+      alert('❌ Text-to-Speech is not supported in your browser. Try Chrome, Safari, or Edge.');
+      return;
+    }
+
+    // Simple direct test
+    const utterance = new SpeechSynthesisUtterance(
+      'Testing. This is a test of the voice alert system. If you can hear this message, voice alerts are working correctly.'
     );
+    
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+    
+    utterance.onstart = () => {
+      console.log('✅ Voice test started');
+    };
+    
+    utterance.onend = () => {
+      console.log('✅ Voice test completed');
+    };
+    
+    utterance.onerror = (error) => {
+      console.error('❌ Voice test error:', error);
+      alert(`Voice test failed: ${error.error}`);
+    };
+    
+    console.log('🔊 Speaking now...');
+    this.synthesis.speak(utterance);
   }
 }
 

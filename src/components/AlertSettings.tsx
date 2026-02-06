@@ -59,46 +59,67 @@ export default function AlertSettings() {
         )}
       </div>
 
-      {/* Voice Alerts (Mobile Only) */}
-      {isMobile && (
-        <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <Volume2 className="w-6 h-6 text-primary-400" />
-              <div>
-                <h3 className="text-lg font-semibold text-white">Voice Alerts</h3>
-                <p className="text-sm text-gray-400">Announce critical alerts using voice</p>
-              </div>
+      {/* Voice Alerts - Available on All Devices */}
+      <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <Volume2 className="w-6 h-6 text-primary-400" />
+            <div>
+              <h3 className="text-lg font-semibold text-white">Voice Alerts</h3>
+              <p className="text-sm text-gray-400">Announce critical alerts using text-to-speech</p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={voiceEnabled}
-                onChange={handleToggleVoice}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
-            </label>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={voiceEnabled}
+              onChange={handleToggleVoice}
+              className="sr-only peer"
+            />
+            <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+          </label>
+        </div>
+
+        <div className="space-y-3">
+          {/* Device Info */}
+          <div className="p-3 bg-slate-700/50 rounded text-xs space-y-1">
+            <p className="text-gray-300">
+              <strong>Device:</strong> {isMobile ? '📱 Mobile' : '💻 Desktop'} 
+              {' '}({deviceService.getDeviceType()})
+            </p>
+            <p className="text-gray-300">
+              <strong>Browser Support:</strong> {
+                'speechSynthesis' in window ? '✅ Text-to-Speech Available' : '❌ Not Supported'
+              }
+            </p>
+            <p className="text-gray-300">
+              <strong>Voice Enabled:</strong> {voiceEnabled ? '✅ Yes' : '❌ No'}
+            </p>
           </div>
 
-          <div className="space-y-3">
-            <div className="p-3 bg-slate-700/50 rounded">
-              <p className="text-sm text-gray-300">
-                <strong>How it works:</strong> When a critical alert arrives, your phone will announce it using text-to-speech, so you're immediately aware even if your phone is in your pocket or across the room.
+          <div className="p-3 bg-slate-700/50 rounded">
+            <p className="text-sm text-gray-300">
+              <strong>How it works:</strong> When a critical alert arrives, your device will announce it using text-to-speech. Perfect for hands-free awareness when driving, in meetings, or when your device is across the room.
+            </p>
+          </div>
+
+          <button
+            onClick={handleTestVoice}
+            className="w-full flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded font-medium transition-colors"
+          >
+            <Volume2 className="w-4 h-4" />
+            Test Voice Alert
+          </button>
+
+          {!('speechSynthesis' in window) && (
+            <div className="p-3 bg-red-900/30 border border-red-700 rounded">
+              <p className="text-sm text-red-300">
+                ⚠️ Your browser doesn't support text-to-speech. Try Chrome, Safari, or Edge.
               </p>
             </div>
-
-            <button
-              onClick={handleTestVoice}
-              disabled={!voiceEnabled}
-              className="w-full flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded font-medium transition-colors"
-            >
-              <Volume2 className="w-4 h-4" />
-              Test Voice Alert
-            </button>
-          </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Desktop Notifications */}
       <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
