@@ -5,6 +5,7 @@ import type { Company, CompanyContext, HistoricalDecision, MarketIntelligence } 
 class CompanyService {
   private companies: Map<string, Company> = new Map();
   private activeCompanyId: string | null = null;
+  private activeCompanyIds: Set<string> = new Set(); // Support multiple active companies
 
   /**
    * Initialize with companies from localStorage
@@ -34,20 +35,100 @@ class CompanyService {
   }
 
   /**
-   * Get active company
+   * Get active company (primary/first active)
    */
   getActiveCompany(): Company | undefined {
+    // For backward compatibility, return first active company
+    if (this.activeCompanyIds.size > 0) {
+      const firstId = Array.from(this.activeCompanyIds)[0];
+      return this.companies.get(firstId);
+    }
     if (!this.activeCompanyId) return undefined;
     return this.companies.get(this.activeCompanyId);
   }
 
   /**
-   * Set active company
+   * Get all active companies
+   */
+  getActiveCompanies(): Company[] {
+    return Array.from(this.activeCompanyIds)
+      .map(id => this.companies.get(id))
+      .filter((c): c is Company => c !== undefined);
+  }
+
+  /**
+   * Set active company (legacy - single company)
    */
   setActiveCompany(id: string): void {
     if (this.companies.has(id)) {
       this.activeCompanyId = id;
+      this.activeCompanyIds.clear();
+      this.activeCompanyIds.add(id);
       localStorage.setItem('activeCompanyId', id);
+      localStorage.setItem('activeCompanyIds', JSON.stringify([id]));
+    }
+  }
+
+  /**
+   * Toggle company active status (multi-company monitoring)
+   */
+  toggleCompanyActive(id: string): void {
+    if (!this.companies.has(id)) return;
+    
+    if (this.activeCompanyIds.has(id)) {
+      this.activeCompanyIds.delete(id);
+      // If this was the primary active company, update it
+      if (this.activeCompanyId === id) {
+        this.activeCompanyId = this.activeCompanyIds.size > 0 
+          ? Array.from(this.activeCompanyIds)[0]
+          : null;
+      }
+    } else {
+      this.activeCompanyIds.add(id);
+      // Set as primary if no primary exists
+      if (!this.activeCompanyId) {
+        this.activeCompanyId = id;
+      }
+    }
+
+    this.saveActiveCompanies();
+  }
+
+  /**
+   * Check if company is active
+   */
+  isCompanyActive(id: string): boolean {
+    return this.activeCompanyIds.has(id);
+  }
+
+  /**
+   * Set multiple companies as active
+   */
+  setActiveCompanies(ids: string[]): void {
+    this.activeCompanyIds.clear();
+    ids.forEach(id => {
+      if (this.companies.has(id)) {
+        this.activeCompanyIds.add(id);
+      }
+    });
+    
+    // Set first as primary
+    if (this.activeCompanyIds.size > 0) {
+      this.activeCompanyId = Array.from(this.activeCompanyIds)[0];
+    } else {
+      this.activeCompanyId = null;
+    }
+
+    this.saveActiveCompanies();
+  }
+
+  /**
+   * Save active companies to localStorage
+   */
+  private saveActiveCompanies(): void {
+    localStorage.setItem('activeCompanyIds', JSON.stringify(Array.from(this.activeCompanyIds)));
+    if (this.activeCompanyId) {
+      localStorage.setItem('activeCompanyId', this.activeCompanyId);
     }
   }
 
@@ -196,9 +277,37 @@ class CompanyService {
       }
     }
 
+    // Load active companies (new multi-company support)
+    const activeIds = localStorage.getItem('activeCompanyIds');
+    if (activeIds) {
+      try {
+        const ids: string[] = JSON.parse(activeIds);
+        ids.forEach(id => {
+          if (this.companies.has(id)) {
+            this.activeCompanyIds.add(id);
+          }
+        });
+      } catch (error) {
+        console.error('Failed to load active companies:', error);
+      }
+    }
+
+    // Load single active company (backward compatibility)
     const activeId = localStorage.getItem('activeCompanyId');
     if (activeId && this.companies.has(activeId)) {
       this.activeCompanyId = activeId;
+      // Add to active set if not already there
+      if (!this.activeCompanyIds.has(activeId)) {
+        this.activeCompanyIds.add(activeId);
+      }
+    }
+
+    // If no active companies but companies exist, activate first one
+    if (this.activeCompanyIds.size === 0 && this.companies.size > 0) {
+      const firstId = Array.from(this.companies.keys())[0];
+      this.activeCompanyIds.add(firstId);
+      this.activeCompanyId = firstId;
+      this.saveActiveCompanies();
     }
   }
 

@@ -107,7 +107,13 @@ export default function CompanyManagement() {
     loadCompanies();
   };
 
+  const handleToggleActive = (id: string) => {
+    companyService.toggleCompanyActive(id);
+    loadCompanies();
+  };
+
   const activeCompany = companyService.getActiveCompany();
+  const activeCompanies = companyService.getActiveCompanies();
 
   return (
     <div className="space-y-6">
@@ -115,7 +121,10 @@ export default function CompanyManagement() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-white mb-2">Company Management</h2>
-          <p className="text-gray-400">Configure and manage your companies for strategic analysis</p>
+          <p className="text-gray-400">Configure and monitor multiple companies simultaneously</p>
+          <p className="text-primary-400 text-sm mt-1">
+            ✓ {activeCompanies.length} {activeCompanies.length === 1 ? 'company' : 'companies'} being monitored
+          </p>
         </div>
         <button
           onClick={handleAdd}
@@ -128,29 +137,47 @@ export default function CompanyManagement() {
 
       {/* Company List */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {companies.map(company => (
-          <div
-            key={company.id}
-            className={`bg-slate-800 rounded-lg p-6 border-2 transition-colors ${
-              activeCompany?.id === company.id
-                ? 'border-primary-600 shadow-lg shadow-primary-900/20'
-                : 'border-slate-700'
-            }`}
-          >
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <Building2 className={`w-6 h-6 ${activeCompany?.id === company.id ? 'text-primary-400' : 'text-gray-400'}`} />
-                <div>
-                  <h3 className="text-lg font-semibold text-white">{company.name}</h3>
-                  <p className="text-sm text-gray-400">{company.industry}</p>
+        {companies.map(company => {
+          const isActive = companyService.isCompanyActive(company.id);
+          const isPrimary = activeCompany?.id === company.id;
+          
+          return (
+            <div
+              key={company.id}
+              className={`bg-slate-800 rounded-lg p-6 border-2 transition-colors ${
+                isActive
+                  ? 'border-primary-600 shadow-lg shadow-primary-900/20'
+                  : 'border-slate-700'
+              }`}
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  {/* Checkbox for multi-select */}
+                  <input
+                    type="checkbox"
+                    checked={isActive}
+                    onChange={() => handleToggleActive(company.id)}
+                    className="w-5 h-5 rounded border-gray-600 text-primary-600 focus:ring-primary-500"
+                  />
+                  <Building2 className={`w-6 h-6 ${isActive ? 'text-primary-400' : 'text-gray-400'}`} />
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">{company.name}</h3>
+                    <p className="text-sm text-gray-400">{company.industry}</p>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  {isPrimary && (
+                    <span className="px-2 py-0.5 bg-primary-600 text-white text-xs rounded-md">
+                      Primary
+                    </span>
+                  )}
+                  {isActive && !isPrimary && (
+                    <span className="px-2 py-0.5 bg-green-600 text-white text-xs rounded-md">
+                      Monitoring
+                    </span>
+                  )}
                 </div>
               </div>
-              {activeCompany?.id === company.id && (
-                <span className="px-2 py-1 bg-primary-600 text-white text-xs rounded-md">
-                  Active
-                </span>
-              )}
-            </div>
 
             <div className="space-y-2 mb-4">
               <div className="flex items-center gap-2 text-sm">
@@ -182,12 +209,20 @@ export default function CompanyManagement() {
 
             {/* Actions */}
             <div className="flex items-center gap-2 pt-4 border-t border-slate-700">
-              {activeCompany?.id !== company.id && (
+              {isActive && !isPrimary && (
                 <button
                   onClick={() => handleSetActive(company.id)}
-                  className="flex-1 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded transition-colors"
+                  className="flex-1 px-3 py-1.5 bg-blue-600/50 hover:bg-blue-600 text-white text-sm rounded transition-colors"
                 >
-                  Set Active
+                  Set as Primary
+                </button>
+              )}
+              {!isActive && (
+                <button
+                  onClick={() => handleToggleActive(company.id)}
+                  className="flex-1 px-3 py-1.5 bg-green-600/50 hover:bg-green-600 text-white text-sm rounded transition-colors"
+                >
+                  Start Monitoring
                 </button>
               )}
               <button
@@ -204,7 +239,8 @@ export default function CompanyManagement() {
               </button>
             </div>
           </div>
-        ))}
+        );
+        })}
       </div>
 
       {/* Add/Edit Form Modal */}
