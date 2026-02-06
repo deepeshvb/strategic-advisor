@@ -61,6 +61,57 @@ export default function ChatInterface({ context: _context }: ChatInterfaceProps)
           const transcript = event.results[0][0].transcript;
           setInput(transcript);
           setIsListening(false);
+          
+          // Auto-submit voice input without requiring Enter key
+          if (transcript.trim()) {
+            // Trigger submission after state updates
+            setTimeout(async () => {
+              // Stop any ongoing speech
+              if (synthesisRef.current) {
+                synthesisRef.current.cancel();
+              }
+              
+              setIsLoading(true);
+              try {
+                const userMessage: Message = {
+                  id: `msg-${Date.now()}`,
+                  role: 'user',
+                  content: transcript,
+                  timestamp: new Date(),
+                };
+
+                setMessages((prev) => [...prev, userMessage]);
+                
+                // Build CEO context and generate strategic response
+                const ceoContext = buildCEOContext();
+                const aiResponse = await generateCEOResponse(transcript, ceoContext);
+                
+                setMessages((prev) => [...prev, aiResponse]);
+                
+                // Speak the response if audio is enabled
+                if (audioEnabled) {
+                  const cleanContent = aiResponse.content
+                    .replace(/[#*]/g, '')
+                    .replace(/🔴|🟠|🟡|🟢|📧|💬|📊|✅|📅|💡|🎯|⏰|🚀/g, '')
+                    .replace(/\n\n/g, '. ')
+                    .replace(/\n/g, ' ')
+                    .substring(0, 500);
+                  speak(cleanContent);
+                }
+              } catch (error) {
+                console.error('Error generating response:', error);
+                setMessages((prev) => [...prev, {
+                  id: `error-${Date.now()}`,
+                  role: 'assistant',
+                  content: 'I apologize, but I encountered an error processing your request. Please try again.',
+                  timestamp: new Date(),
+                }]);
+              } finally {
+                setIsLoading(false);
+                setInput('');
+              }
+            }, 300);
+          }
         };
 
         recognitionRef.current.onerror = () => {
