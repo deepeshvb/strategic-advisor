@@ -381,6 +381,23 @@ export default function IntegrationSettings() {
     );
   };
 
+  const handleFileChange = (integrationId: string, fieldKey: string, file: File | null) => {
+    if (!file) return;
+    
+    setIntegrations(prev =>
+      prev.map(integration =>
+        integration.id === integrationId
+          ? {
+              ...integration,
+              fields: integration.fields.map(field =>
+                field.key === fieldKey ? { ...field, value: file.name } : field
+              ),
+            }
+          : integration
+      )
+    );
+  };
+
   const handleToggleIntegration = (integrationId: string) => {
     setIntegrations(prev =>
       prev.map(integration =>
@@ -561,16 +578,28 @@ export default function IntegrationSettings() {
                     <div className="relative">
                       <input
                         type={field.type === 'password' && !showPasswords[field.key] ? 'password' : field.type === 'file' ? 'file' : 'text'}
-                        value={field.value}
-                        onChange={(e) => handleFieldChange(integration.id, field.key, e.target.value)}
+                        value={field.type === 'file' ? undefined : field.value}
+                        onChange={(e) => {
+                          if (field.type === 'file') {
+                            handleFileChange(integration.id, field.key, e.target.files?.[0] || null);
+                          } else {
+                            handleFieldChange(integration.id, field.key, e.target.value);
+                          }
+                        }}
                         placeholder={field.backendOnly ? 'Configure on backend server' : `Enter ${field.label.toLowerCase()}`}
                         disabled={field.backendOnly}
+                        accept={field.type === 'file' ? '.json' : undefined}
                         className={`w-full px-3 py-2 bg-slate-900 border rounded-lg placeholder-gray-500 focus:outline-none pr-10 ${
                           field.backendOnly 
                             ? 'border-red-900 text-red-400 cursor-not-allowed opacity-60' 
                             : 'border-slate-600 text-white focus:border-primary-500'
                         }`}
                       />
+                      {field.type === 'file' && field.value && (
+                        <div className="mt-1 text-xs text-gray-400">
+                          Selected: {field.value}
+                        </div>
+                      )}
                       {field.type === 'password' && (
                         <button
                           onClick={() => togglePasswordVisibility(field.key)}

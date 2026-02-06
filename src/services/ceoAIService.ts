@@ -147,7 +147,7 @@ export async function generateCEOResponse(
     const startTime = Date.now();
 
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-3-5-sonnet-20241022',
       max_tokens: 4000,
       temperature: 0.7,
       system: CEO_SYSTEM_PROMPT,
