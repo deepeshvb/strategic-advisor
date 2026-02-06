@@ -7,6 +7,10 @@ export default function LocalLLMSettings() {
   const [selectedModel, setSelectedModel] = useState('llama3.1:8b');
   const [checking, setChecking] = useState(false);
   const [baseUrl, setBaseUrl] = useState('http://localhost:11434');
+  // BUG FIX: Use React state instead of reading localStorage on every render
+  const [isLocalEnabled, setIsLocalEnabled] = useState(
+    localStorage.getItem('use_local_llm') !== 'false'
+  );
 
   useEffect(() => {
     checkOllamaStatus();
@@ -47,15 +51,15 @@ export default function LocalLLMSettings() {
 
   const handleEnableLocal = () => {
     localStorage.setItem('use_local_llm', 'true');
+    setIsLocalEnabled(true); // BUG FIX: Update state to trigger re-render
     alert('Local LLM enabled! All queries will now use Ollama (100% private).');
   };
 
   const handleDisableLocal = () => {
     localStorage.setItem('use_local_llm', 'false');
+    setIsLocalEnabled(false); // BUG FIX: Update state to trigger re-render
     alert('Cloud API enabled. WARNING: Company data will be sent to Anthropic.');
   };
-
-  const isLocalEnabled = localStorage.getItem('use_local_llm') !== 'false';
 
   return (
     <div className="space-y-6">
@@ -261,41 +265,95 @@ export default function LocalLLMSettings() {
         </div>
       </div>
 
-      {/* Privacy Mode Toggle */}
+      {/* LLM Strategy */}
       <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-        <h3 className="text-lg font-semibold text-white mb-4">Privacy Mode</h3>
+        <h3 className="text-lg font-semibold text-white mb-4">LLM Strategy</h3>
         
         <div className="space-y-4">
+          {/* Current Mode */}
           <div className={`p-4 rounded-lg border-2 ${
             isLocalEnabled 
               ? 'bg-green-900/20 border-green-700/50' 
               : 'bg-red-900/20 border-red-700/50'
           }`}>
             <p className={`font-medium mb-2 ${isLocalEnabled ? 'text-green-400' : 'text-red-400'}`}>
-              {isLocalEnabled ? '🔒 Privacy Mode: ENABLED' : '⚠️ Privacy Mode: DISABLED'}
+              {isLocalEnabled ? '🔒 Using Local LLM (Privacy Mode)' : '☁️ Using Cloud API'}
             </p>
             <p className="text-sm text-gray-300">
               {isLocalEnabled 
                 ? 'All AI processing happens locally. Your data NEVER leaves your computer.'
-                : 'Using cloud API. Company data is sent to Anthropic servers.'}
+                : 'Company data is sent to Anthropic servers for processing.'}
             </p>
           </div>
 
-          <div className="flex gap-3">
+          {/* Strategy Options */}
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-gray-300">Choose your strategy:</p>
+            
+            {/* Local Only */}
             <button
               onClick={handleEnableLocal}
               disabled={!status.running}
-              className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+              className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-colors ${
+                isLocalEnabled && status.running
+                  ? 'border-green-600 bg-green-900/20'
+                  : 'border-slate-700 bg-slate-900 hover:border-green-600/50'
+              } ${!status.running ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              <Lock className="w-4 h-4 inline mr-2" />
-              Enable Local LLM
+              <div className="flex items-start gap-3">
+                <Lock className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-medium text-white">Local Only (Recommended)</p>
+                  <p className="text-sm text-gray-400 mt-1">
+                    100% private, $0 cost, works offline. Use Ollama for all queries.
+                  </p>
+                  {!status.running && (
+                    <p className="text-xs text-yellow-400 mt-1">
+                      ⚠️ Requires Ollama to be running
+                    </p>
+                  )}
+                </div>
+              </div>
             </button>
+
+            {/* Cloud Only */}
             <button
               onClick={handleDisableLocal}
-              className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+              className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-colors ${
+                !isLocalEnabled
+                  ? 'border-red-600 bg-red-900/20'
+                  : 'border-slate-700 bg-slate-900 hover:border-red-600/50'
+              }`}
             >
-              Use Cloud API
+              <div className="flex items-start gap-3">
+                <div className="w-5 h-5 flex items-center justify-center text-red-400 flex-shrink-0 mt-0.5">☁️</div>
+                <div className="flex-1">
+                  <p className="font-medium text-white">Cloud API Only</p>
+                  <p className="text-sm text-gray-400 mt-1">
+                    Fast responses, requires API key, ~$0.01-0.10 per query.
+                  </p>
+                  <p className="text-xs text-red-400 mt-1">
+                    ⚠️ Company data sent to Anthropic servers
+                  </p>
+                </div>
+              </div>
             </button>
+
+            {/* Hybrid Mode (Coming Soon) */}
+            <div className="px-4 py-3 rounded-lg border-2 border-slate-700 bg-slate-900/50 opacity-60">
+              <div className="flex items-start gap-3">
+                <div className="w-5 h-5 flex items-center justify-center text-blue-400 flex-shrink-0 mt-0.5">🔄</div>
+                <div className="flex-1">
+                  <p className="font-medium text-white flex items-center gap-2">
+                    Hybrid Mode
+                    <span className="text-xs px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded">Coming Soon</span>
+                  </p>
+                  <p className="text-sm text-gray-400 mt-1">
+                    Use local LLM for sensitive queries, cloud for non-sensitive ones. Automatic fallback.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
