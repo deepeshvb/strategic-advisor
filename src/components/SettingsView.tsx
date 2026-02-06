@@ -25,34 +25,38 @@ export default function SettingsView() {
   const tabs = allTabs.filter(tab => authService.hasPermission(tab.permission));
 
   return (
-    <div className="h-full overflow-y-auto p-6">
-      {/* Tabs */}
-      <div className="flex gap-2 mb-6 border-b border-slate-700">
-        {tabs.map(tab => {
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
-                activeTab === tab.id
-                  ? 'border-primary-500 text-primary-400'
-                  : 'border-transparent text-gray-400 hover:text-gray-300'
-              }`}
-            >
-              <Icon className="w-5 h-5" />
-              <span className="font-medium">{tab.label}</span>
-            </button>
-          );
-        })}
+    <div className="h-full flex flex-col bg-slate-900 overflow-hidden">
+      {/* Tabs - Horizontal scrollable on mobile */}
+      <div className="flex-shrink-0 border-b border-slate-700 bg-slate-800">
+        <div className="flex overflow-x-auto">
+          {tabs.map(tab => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-4 md:px-6 py-3 md:py-4 border-b-2 transition-colors whitespace-nowrap text-sm md:text-base ${
+                  activeTab === tab.id
+                    ? 'border-primary-500 text-primary-400'
+                    : 'border-transparent text-gray-400 hover:text-gray-300'
+                }`}
+              >
+                <Icon className="w-4 h-4 md:w-5 md:h-5" />
+                <span className="font-medium">{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Tab Content */}
-      {activeTab === 'companies' && <CompanyManagement />}
-      {activeTab === 'llm' && <LocalLLMSettings />}
-      {activeTab === 'integrations' && <IntegrationSettings />}
-      {activeTab === 'alerts' && <AlertSettings />}
-      {activeTab === 'users' && <UserManagement />}
+      {/* Tab Content - Vertical scroll only, no horizontal overflow */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden bg-slate-900">
+        {activeTab === 'companies' && <CompanyManagement />}
+        {activeTab === 'llm' && <LocalLLMSettings />}
+        {activeTab === 'integrations' && <IntegrationSettings />}
+        {activeTab === 'alerts' && <AlertSettings />}
+        {activeTab === 'users' && <UserManagement />}
+      </div>
     </div>
   );
 }
