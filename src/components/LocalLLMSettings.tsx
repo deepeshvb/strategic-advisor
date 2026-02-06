@@ -227,25 +227,31 @@ export default function LocalLLMSettings() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-xs md:text-sm font-medium text-gray-300 mb-2">
                 Ollama API URL
               </label>
               <input
                 type="text"
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white"
+                placeholder="http://localhost:11434"
+                className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-sm md:text-base text-white"
               />
-              <p className="text-xs text-gray-500 mt-1">
-                Default: http://localhost:11434
+              <p className="text-xs text-gray-500 mt-2">
+                <strong>On laptop:</strong> <code className="bg-slate-800 px-1 rounded">http://localhost:11434</code><br/>
+                <strong>On mobile:</strong> <code className="bg-slate-800 px-1 rounded">http://YOUR_LAPTOP_IP:11434</code>
               </p>
             </div>
 
             <button
-              onClick={handleSave}
-              className="w-full px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors"
+              onClick={() => {
+                handleSave();
+                setTimeout(() => checkOllamaStatus(), 500);
+              }}
+              className="w-full px-4 py-3 md:py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors text-sm md:text-base touch-manipulation flex items-center justify-center gap-2"
             >
-              Save Configuration
+              <RefreshCw className="w-4 h-4" />
+              Save & Test Connection
             </button>
           </div>
         </div>
@@ -420,31 +426,30 @@ export default function LocalLLMSettings() {
               </div>
             </button>
 
-            {/* Hybrid Mode */}
+            {/* Hybrid Mode - NOW ENABLED FOR ALL */}
             <button
               onClick={handleEnableHybrid}
-              disabled={!status.running}
               className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-colors ${
                 isHybridEnabled
                   ? 'border-blue-600 bg-blue-900/20'
                   : 'border-slate-700 bg-slate-900 hover:border-blue-600/50'
-              } ${!status.running ? 'opacity-50 cursor-not-allowed' : ''}`}
+              }`}
             >
               <div className="flex items-start gap-3">
                 <div className="w-5 h-5 flex items-center justify-center text-blue-400 flex-shrink-0 mt-0.5">🔄</div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium text-white">Hybrid Mode (Smart)</p>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm md:text-base font-medium text-white">Hybrid Mode (Smart)</p>
                     {isHybridEnabled && (
-                      <span className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded">Active</span>
+                      <span className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded whitespace-nowrap">Active</span>
                     )}
                   </div>
-                  <p className="text-sm text-gray-400 mt-1">
-                    Local LLM for sensitive company data, Cloud API for general queries. Best of both worlds.
+                  <p className="text-xs md:text-sm text-gray-400 mt-1">
+                    Local LLM for sensitive data, Cloud API for general queries. Best of both worlds.
                   </p>
                   {!status.running && (
-                    <p className="text-xs text-yellow-400 mt-1">
-                      ⚠️ Requires Ollama for local processing
+                    <p className="text-xs text-blue-300 mt-1">
+                      ℹ️ Uses cloud until laptop's Ollama is connected - configure URL above
                     </p>
                   )}
                 </div>
