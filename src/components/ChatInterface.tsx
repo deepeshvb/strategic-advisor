@@ -222,6 +222,12 @@ export default function ChatInterface({ context: _context }: ChatInterfaceProps)
 
   // Load daily briefing
   const loadDailyBriefing = async () => {
+    // Stop any ongoing speech
+    if (synthesisRef.current) {
+      synthesisRef.current.cancel();
+      setIsSpeaking(false);
+    }
+
     setIsLoading(true);
     try {
       const ceoContext = buildCEOContext();
