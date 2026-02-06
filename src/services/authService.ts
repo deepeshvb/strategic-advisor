@@ -34,7 +34,7 @@ class AuthService {
   private config: AuthConfig = {
     requireAuth: true,
     allowedNumbers: [],
-    sessionTimeout: 60, // 1 hour
+    sessionTimeout: 525600, // 1 year in minutes = infinite for server/monitoring agent
   };
 
   constructor() {
@@ -80,23 +80,29 @@ class AuthService {
     if (stored) {
       try {
         const user = JSON.parse(stored);
-        // Check session timeout
-        if (user.lastLogin) {
+        
+        // CRITICAL FIX: For monitoring agent, NEVER expire sessions on load
+        // Only check if sessionTimeout is very short (< 24 hours)
+        if (user.lastLogin && this.config.sessionTimeout > 0 && this.config.sessionTimeout < 1440) {
           const lastLogin = new Date(user.lastLogin);
           const now = new Date();
           const minutesSinceLogin = (now.getTime() - lastLogin.getTime()) / 60000;
           
           if (minutesSinceLogin > this.config.sessionTimeout) {
-            // Session expired
+            // Session expired (only for short sessions)
             this.logout();
             return;
           }
         }
+        
+        // Load user - session is persistent
         this.currentUser = {
           ...user,
           createdAt: new Date(user.createdAt),
           lastLogin: user.lastLogin ? new Date(user.lastLogin) : undefined,
         };
+        
+        console.log('✅ User session loaded (persistent for monitoring agent)');
       } catch (e) {
         console.error('Failed to load current user:', e);
       }
@@ -107,15 +113,32 @@ class AuthService {
    * Setup session monitoring
    */
   private setupSessionMonitoring() {
-    // Import device service to check if mobile
+    // CRITICAL: For monitoring agent, sessions should NEVER expire
+    // Only expire sessions if explicitly configured with very short timeout
+    
     import('./deviceService').then(({ deviceService }) => {
       // Check session every minute
       setInterval(() => {
-        // Mobile devices never timeout (for receiving alerts)
+        // NEVER timeout if:
+        // 1. Mobile devices (need to receive alerts)
+        // 2. Desktop/laptop in server mode (monitoring agent)
+        // 3. Session timeout disabled (0 = infinite)
+        
         if (deviceService.isMobile()) {
-          return; // Skip timeout check on mobile
+          return; // Mobile never expires
         }
 
+        // Server mode: If session timeout is high (> 1 day), treat as server
+        if (this.config.sessionTimeout > 1440) { // > 24 hours = server mode
+          return; // Server never expires
+        }
+
+        // Timeout disabled
+        if (this.config.sessionTimeout === 0) {
+          return; // Infinite session
+        }
+
+        // Only check timeout for short sessions (< 24 hours)
         if (this.currentUser && this.currentUser.lastLogin) {
           const now = new Date();
           const minutesSinceLogin = (now.getTime() - this.currentUser.lastLogin.getTime()) / 60000;
@@ -156,12 +179,16 @@ class AuthService {
       };
     }
 
-    // In production, verify code with backend
-    // For now, accept any 6-digit code or skip if not provided
-    if (verificationCode && verificationCode.length !== 6) {
+    // DEVELOPMENT MODE: Skip verification code requirement
+    // In production with Twilio/SMS, this would verify the code
+    // For now, accept any code or no code (for easy server setup)
+    console.log('📱 Auth: Development mode - skipping SMS verification');
+    
+    // If code provided, just validate format (but don't reject if missing)
+    if (verificationCode && verificationCode.length !== 6 && verificationCode !== '') {
       return {
         success: false,
-        message: 'Invalid verification code. Must be 6 digits.'
+        message: 'Invalid verification code format. Use 6 digits or leave empty in dev mode.'
       };
     }
 
