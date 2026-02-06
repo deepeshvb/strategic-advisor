@@ -77,19 +77,19 @@ export default function UserManagement() {
   const canManageUsers = authService.hasPermission('addUsers');
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6 p-4 md:p-0">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-white mb-2">User Management</h2>
-          <p className="text-gray-400">
+          <h2 className="text-xl md:text-2xl font-bold text-white mb-2">User Management</h2>
+          <p className="text-sm md:text-base text-gray-400">
             Manage mobile numbers authorized to access this system
           </p>
         </div>
         {canManageUsers && (
           <button
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+            className="flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-3 md:py-2 rounded-lg font-medium transition-colors text-sm md:text-base touch-manipulation whitespace-nowrap"
           >
             <Plus className="w-4 h-4" />
             Add User
@@ -99,16 +99,18 @@ export default function UserManagement() {
 
       {/* Current User Badge */}
       <div className="bg-primary-900/30 border border-primary-700 rounded-lg p-4">
-        <p className="text-sm text-primary-300 mb-2">Currently logged in as:</p>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center text-white font-bold">
-            {currentUser?.name.charAt(0).toUpperCase()}
+        <p className="text-xs md:text-sm text-primary-300 mb-2">Currently logged in as:</p>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0">
+              {currentUser?.name.charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm md:text-base text-white font-medium truncate">{currentUser?.name}</p>
+              <p className="text-xs md:text-sm text-gray-400 truncate">{authService.formatPhoneNumber(currentUser?.phoneNumber || '')}</p>
+            </div>
           </div>
-          <div>
-            <p className="text-white font-medium">{currentUser?.name}</p>
-            <p className="text-sm text-gray-400">{authService.formatPhoneNumber(currentUser?.phoneNumber || '')}</p>
-          </div>
-          <span className={`ml-auto px-3 py-1 rounded-full text-xs font-medium border ${getRoleBadgeColor(currentUser?.role || 'readonly')}`}>
+          <span className={`px-3 py-1 rounded-full text-xs font-medium border whitespace-nowrap ${getRoleBadgeColor(currentUser?.role || 'readonly')}`}>
             {getRoleIcon(currentUser?.role || 'readonly')} {currentUser?.role.toUpperCase()}
           </span>
         </div>
@@ -117,7 +119,7 @@ export default function UserManagement() {
       {/* Users List */}
       <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
         <div className="p-4 border-b border-slate-700">
-          <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+          <h3 className="text-base md:text-lg font-semibold text-white flex items-center gap-2">
             <Users className="w-5 h-5 text-primary-400" />
             Authorized Users ({users.length})
           </h3>
@@ -126,18 +128,18 @@ export default function UserManagement() {
         <div className="divide-y divide-slate-700">
           {users.map((user) => (
             <div key={user.id} className={`p-4 ${!user.active ? 'opacity-50' : ''}`}>
-              <div className="flex items-start gap-4">
+              <div className="flex flex-col sm:flex-row sm:items-start gap-4">
                 {/* Avatar */}
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg ${
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg flex-shrink-0 ${
                   user.active ? 'bg-gradient-to-br from-primary-600 to-primary-700' : 'bg-gray-600'
                 }`}>
                   {user.name.charAt(0).toUpperCase()}
                 </div>
 
                 {/* User Info */}
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <h4 className="text-white font-medium">{user.name}</h4>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                    <h4 className="text-sm md:text-base text-white font-medium">{user.name}</h4>
                     <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getRoleBadgeColor(user.role)}`}>
                       {getRoleIcon(user.role)} {user.role.toUpperCase()}
                     </span>
@@ -153,13 +155,13 @@ export default function UserManagement() {
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2 text-sm text-gray-400 mb-2">
-                    <Smartphone className="w-4 h-4" />
-                    {authService.formatPhoneNumber(user.phoneNumber)}
+                  <div className="flex items-center gap-2 text-xs md:text-sm text-gray-400 mb-2">
+                    <Smartphone className="w-4 h-4 flex-shrink-0" />
+                    <span className="break-all">{authService.formatPhoneNumber(user.phoneNumber)}</span>
                   </div>
 
                   {/* Permissions */}
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-1 md:gap-2">
                     {user.permissions.viewDashboard && (
                       <span className="px-2 py-1 bg-slate-700 text-xs text-gray-300 rounded">
                         📊 Dashboard
@@ -200,24 +202,24 @@ export default function UserManagement() {
 
                 {/* Actions */}
                 {canManageUsers && user.id !== currentUser?.id && (
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 mt-3 sm:mt-0 sm:flex-shrink-0">
                     <button
                       onClick={() => setEditingUser(user)}
-                      className="p-2 bg-slate-700 hover:bg-slate-600 text-gray-300 rounded transition-colors"
+                      className="flex-1 sm:flex-none p-2 md:p-2.5 bg-slate-700 hover:bg-slate-600 text-gray-300 rounded transition-colors touch-manipulation"
                       title="Edit user"
                     >
                       <Edit2 className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => handleToggleActive(user)}
-                      className="p-2 bg-slate-700 hover:bg-slate-600 text-gray-300 rounded transition-colors"
+                      className="flex-1 sm:flex-none p-2 md:p-2.5 bg-slate-700 hover:bg-slate-600 text-gray-300 rounded transition-colors touch-manipulation"
                       title={user.active ? 'Deactivate user' : 'Reactivate user'}
                     >
                       {user.active ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                     <button
                       onClick={() => handleRemoveUser(user.id)}
-                      className="p-2 bg-red-900/30 hover:bg-red-900/50 text-red-300 rounded transition-colors"
+                      className="flex-1 sm:flex-none p-2 md:p-2.5 bg-red-900/30 hover:bg-red-900/50 text-red-300 rounded transition-colors touch-manipulation"
                       title="Remove user"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -238,31 +240,31 @@ export default function UserManagement() {
       </div>
 
       {/* Role Descriptions */}
-      <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+      <div className="bg-slate-800 rounded-lg p-4 md:p-6 border border-slate-700">
+        <h3 className="text-base md:text-lg font-semibold text-white mb-4 flex items-center gap-2">
           <Shield className="w-5 h-5 text-primary-400" />
           Role Permissions
         </h3>
         <div className="space-y-3">
           <div className="flex items-start gap-3">
-            <span className="text-2xl">👑</span>
-            <div>
-              <p className="text-white font-medium">Admin</p>
-              <p className="text-sm text-gray-400">Full access - Can manage everything including users</p>
+            <span className="text-xl md:text-2xl flex-shrink-0">👑</span>
+            <div className="min-w-0">
+              <p className="text-sm md:text-base text-white font-medium">Admin</p>
+              <p className="text-xs md:text-sm text-gray-400">Full access - Can manage everything including users</p>
             </div>
           </div>
           <div className="flex items-start gap-3">
-            <span className="text-2xl">👤</span>
-            <div>
-              <p className="text-white font-medium">User</p>
-              <p className="text-sm text-gray-400">Can view dashboard/settings and edit alerts, but cannot change companies or integrations</p>
+            <span className="text-xl md:text-2xl flex-shrink-0">👤</span>
+            <div className="min-w-0">
+              <p className="text-sm md:text-base text-white font-medium">User</p>
+              <p className="text-xs md:text-sm text-gray-400">Can view dashboard/settings and edit alerts, but cannot change companies or integrations</p>
             </div>
           </div>
           <div className="flex items-start gap-3">
-            <span className="text-2xl">👁️</span>
-            <div>
-              <p className="text-white font-medium">Read-Only</p>
-              <p className="text-sm text-gray-400">Can only view dashboard and settings - no edit permissions</p>
+            <span className="text-xl md:text-2xl flex-shrink-0">👁️</span>
+            <div className="min-w-0">
+              <p className="text-sm md:text-base text-white font-medium">Read-Only</p>
+              <p className="text-xs md:text-sm text-gray-400">Can only view dashboard and settings - no edit permissions</p>
             </div>
           </div>
         </div>

@@ -44,15 +44,15 @@ export default function AlertSettings() {
   const history = alertService.getAlertHistory();
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6 p-4 md:p-0">
       <div>
-        <h2 className="text-2xl font-bold text-white mb-2">Alert Configuration</h2>
-        <p className="text-gray-400">
+        <h2 className="text-xl md:text-2xl font-bold text-white mb-2">Alert Configuration</h2>
+        <p className="text-sm md:text-base text-gray-400">
           Configure how you want to receive critical alerts when monitoring detects important items.
         </p>
         {isMobile && (
           <div className="mt-3 p-3 bg-blue-900/30 border border-blue-700 rounded-lg">
-            <p className="text-sm text-blue-300">
+            <p className="text-xs md:text-sm text-blue-300">
               📱 <strong>Mobile Device Detected:</strong> Your session will never timeout, and you'll receive real-time voice alerts for critical items.
             </p>
           </div>
@@ -60,13 +60,13 @@ export default function AlertSettings() {
       </div>
 
       {/* Voice Alerts - Available on All Devices */}
-      <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <Volume2 className="w-6 h-6 text-primary-400" />
-            <div>
-              <h3 className="text-lg font-semibold text-white">Voice Alerts</h3>
-              <p className="text-sm text-gray-400">Announce critical alerts using text-to-speech</p>
+      <div className="bg-slate-800 rounded-lg p-4 md:p-6 border border-slate-700">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <Volume2 className="w-5 h-5 md:w-6 md:h-6 text-primary-400 flex-shrink-0" />
+            <div className="min-w-0">
+              <h3 className="text-base md:text-lg font-semibold text-white">Voice Alerts</h3>
+              <p className="text-xs md:text-sm text-gray-400">Announce critical alerts using text-to-speech</p>
             </div>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
@@ -105,7 +105,7 @@ export default function AlertSettings() {
 
           <button
             onClick={handleTestVoice}
-            className="w-full flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded font-medium transition-colors"
+            className="w-full flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-3 md:py-2 rounded-lg font-medium transition-colors text-sm md:text-base touch-manipulation"
           >
             <Volume2 className="w-4 h-4" />
             Test Voice Alert
@@ -122,10 +122,10 @@ export default function AlertSettings() {
       </div>
 
       {/* Desktop Notifications */}
-      <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+      <div className="bg-slate-800 rounded-lg p-4 md:p-6 border border-slate-700">
         <div className="flex items-center gap-3 mb-4">
-          <Bell className="w-6 h-6 text-blue-400" />
-          <h3 className="text-lg font-semibold text-white">Desktop Notifications</h3>
+          <Bell className="w-5 h-5 md:w-6 md:h-6 text-blue-400 flex-shrink-0" />
+          <h3 className="text-base md:text-lg font-semibold text-white">Desktop Notifications</h3>
         </div>
         <label className="flex items-center gap-3">
           <input
@@ -145,10 +145,10 @@ export default function AlertSettings() {
       </div>
 
       {/* Email Alerts */}
-      <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+      <div className="bg-slate-800 rounded-lg p-4 md:p-6 border border-slate-700">
         <div className="flex items-center gap-3 mb-4">
-          <Mail className="w-6 h-6 text-red-400" />
-          <h3 className="text-lg font-semibold text-white">Email Alerts</h3>
+          <Mail className="w-5 h-5 md:w-6 md:h-6 text-red-400 flex-shrink-0" />
+          <h3 className="text-base md:text-lg font-semibold text-white">Email Alerts</h3>
         </div>
         <label className="flex items-center gap-3 mb-4">
           <input
@@ -163,7 +163,7 @@ export default function AlertSettings() {
           <span className="text-gray-300">Enable email alerts</span>
         </label>
         {config.email?.enabled && (
-          <div className="space-y-3 ml-7">
+          <div className="space-y-3 ml-0 sm:ml-7">
             <input
               type="email"
               placeholder="your@email.com"
@@ -172,7 +172,7 @@ export default function AlertSettings() {
                 ...config,
                 email: { ...config.email!, to: e.target.value },
               })}
-              className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2 text-white"
+              className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-3 md:py-2 text-sm md:text-base text-white"
             />
             <p className="text-xs text-yellow-400">
               ⚠️ Requires backend API configuration
@@ -182,10 +182,10 @@ export default function AlertSettings() {
       </div>
 
       {/* SMS Alerts */}
-      <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+      <div className="bg-slate-800 rounded-lg p-4 md:p-6 border border-slate-700">
         <div className="flex items-center gap-3 mb-4">
-          <Smartphone className="w-6 h-6 text-green-400" />
-          <h3 className="text-lg font-semibold text-white">SMS Alerts</h3>
+          <Smartphone className="w-5 h-5 md:w-6 md:h-6 text-green-400 flex-shrink-0" />
+          <h3 className="text-base md:text-lg font-semibold text-white">SMS Alerts</h3>
         </div>
         <label className="flex items-center gap-3 mb-4">
           <input
@@ -219,10 +219,10 @@ export default function AlertSettings() {
       </div>
 
       {/* Slack Webhook */}
-      <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+      <div className="bg-slate-800 rounded-lg p-4 md:p-6 border border-slate-700">
         <div className="flex items-center gap-3 mb-4">
-          <MessageSquare className="w-6 h-6 text-purple-400" />
-          <h3 className="text-lg font-semibold text-white">Slack Notifications</h3>
+          <MessageSquare className="w-5 h-5 md:w-6 md:h-6 text-purple-400 flex-shrink-0" />
+          <h3 className="text-base md:text-lg font-semibold text-white">Slack Notifications</h3>
         </div>
         <label className="flex items-center gap-3 mb-4">
           <input
@@ -256,10 +256,10 @@ export default function AlertSettings() {
       </div>
 
       {/* Pushover */}
-      <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+      <div className="bg-slate-800 rounded-lg p-4 md:p-6 border border-slate-700">
         <div className="flex items-center gap-3 mb-4">
-          <Smartphone className="w-6 h-6 text-orange-400" />
-          <h3 className="text-lg font-semibold text-white">Pushover (Recommended for Mobile)</h3>
+          <Smartphone className="w-5 h-5 md:w-6 md:h-6 text-orange-400 flex-shrink-0" />
+          <h3 className="text-base md:text-lg font-semibold text-white break-words">Pushover (Recommended for Mobile)</h3>
         </div>
         <label className="flex items-center gap-3 mb-4">
           <input
@@ -303,17 +303,17 @@ export default function AlertSettings() {
       </div>
 
       {/* Action Buttons */}
-      <div className="flex gap-3">
+      <div className="flex flex-col sm:flex-row gap-3">
         <button
           onClick={handleSave}
-          className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+          className="flex-1 flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-6 py-3 md:py-2 rounded-lg font-medium transition-colors text-sm md:text-base touch-manipulation"
         >
           <Send className="w-4 h-4" />
           Save Configuration
         </button>
         <button
           onClick={handleTest}
-          className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+          className="flex-1 flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-6 py-3 md:py-2 rounded-lg font-medium transition-colors text-sm md:text-base touch-manipulation"
         >
           <Bell className="w-4 h-4" />
           Send Test Alert
@@ -327,15 +327,15 @@ export default function AlertSettings() {
       )}
 
       {/* Alert History */}
-      <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-        <h3 className="text-lg font-semibold text-white mb-4">Alert History (Last 10)</h3>
+      <div className="bg-slate-800 rounded-lg p-4 md:p-6 border border-slate-700">
+        <h3 className="text-base md:text-lg font-semibold text-white mb-4">Alert History (Last 10)</h3>
         <div className="space-y-2">
           {history.slice(0, 10).map((alert) => (
             <div key={alert.id} className="flex items-start gap-3 p-3 bg-slate-700/50 rounded border border-slate-600">
-              <span className="text-2xl">{alert.severity === 'critical' ? '🚨' : alert.severity === 'high' ? '⚠️' : '📊'}</span>
-              <div className="flex-1">
-                <p className="text-white font-medium">{alert.title}</p>
-                <p className="text-sm text-gray-400">{alert.timestamp.toLocaleString()}</p>
+              <span className="text-xl md:text-2xl flex-shrink-0">{alert.severity === 'critical' ? '🚨' : alert.severity === 'high' ? '⚠️' : '📊'}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm md:text-base text-white font-medium break-words">{alert.title}</p>
+                <p className="text-xs md:text-sm text-gray-400">{alert.timestamp.toLocaleString()}</p>
               </div>
             </div>
           ))}
