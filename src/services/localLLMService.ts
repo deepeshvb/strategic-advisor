@@ -23,6 +23,11 @@ class LocalLLMService {
     maxTokens: 4000,
   };
 
+  constructor() {
+    // BUG FIX: Load saved configuration on initialization
+    this.loadConfig();
+  }
+
   /**
    * Configure local LLM settings
    */

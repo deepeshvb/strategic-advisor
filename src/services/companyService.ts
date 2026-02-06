@@ -161,12 +161,19 @@ class CompanyService {
    */
   deleteCompany(id: string): void {
     this.companies.delete(id);
+    
+    // Remove from active set if present
+    this.activeCompanyIds.delete(id);
+    
+    // Update primary active company if it was deleted
     if (this.activeCompanyId === id) {
-      this.activeCompanyId = this.companies.size > 0 
-        ? Array.from(this.companies.keys())[0] 
-        : null;
+      this.activeCompanyId = this.activeCompanyIds.size > 0
+        ? Array.from(this.activeCompanyIds)[0]
+        : (this.companies.size > 0 ? Array.from(this.companies.keys())[0] : null);
     }
+    
     this.saveCompanies();
+    this.saveActiveCompanies(); // BUG FIX: Save active companies to persist Set changes
   }
 
   /**
