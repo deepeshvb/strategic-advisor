@@ -5,7 +5,10 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { CEO_SYSTEM_PROMPT } from '../prompts/ceo-system-prompt';
+import { AGI_STRATEGIC_PROMPT } from '../prompts/agi-strategic-prompt';
 import { Message } from '../types';
+import { localLLMService } from './localLLMService';
+import { companyService } from './companyService';
 
 /**
  * Context structure for CEO strategic analysis
