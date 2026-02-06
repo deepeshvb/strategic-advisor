@@ -190,6 +190,12 @@ export async function generateCEOResponse(
   if (greetingPattern.test(userMessage.trim())) {
     return generateGreetingResponse();
   }
+
+  // Detect brief/short update requests
+  const briefPattern = /(brief|quick|short|summary|tldr|headlines|what'?s urgent|give me (\w+ )?update)/i;
+  if (briefPattern.test(userMessage.trim())) {
+    userMessage = `${userMessage}\n\n[INSTRUCTION: Provide a BRIEF, CEO-optimized summary. Maximum 4-5 bullet points. Focus ONLY on: 1) Most critical item requiring action within 24h, 2) One key blind spot, 3) One quick win opportunity. Keep each point to 1-2 sentences. No lengthy explanations.]`;
+  }
   
   // Format all communication context
   const contextPrompt = formatContextForLLM(context);
