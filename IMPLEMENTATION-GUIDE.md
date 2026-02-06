@@ -5,21 +5,40 @@
 
 ---
 
+## 🔐 Critical Security Notice
+
+**Most integrations require a backend server.** The Strategic Advisor Settings UI clearly identifies:
+
+- **🟢 Frontend-Safe Fields** - Can be configured in the UI (Client IDs, Redirect URIs, Tenant IDs)
+- **🔴 Backend-Only Fields** - MUST be stored on a secure backend server (Secrets, Tokens, API Keys)
+
+**Why Backend is Required:**
+- OAuth Client Secrets grant full application access
+- Bot Tokens (Slack/Discord) provide workspace-wide access
+- API Tokens (Jira/GitHub) grant full account access
+- Service Account Keys enable organization-wide scanning
+
+**Never expose secrets in frontend code or browser.** See [BACKEND-SETUP-GUIDE.md](BACKEND-SETUP-GUIDE.md) for implementation.
+
+---
+
 ## 📋 Table of Contents
 
 1. [Prerequisites](#prerequisites)
 2. [Initial Setup](#initial-setup)
-3. [Core Setup: Anthropic API](#core-setup-anthropic-api)
-4. [Integration Setup](#integration-setup)
+3. [Understanding Frontend vs Backend Configuration](#understanding-frontend-vs-backend-configuration)
+4. [Core Setup: Anthropic API](#core-setup-anthropic-api)
+5. [Integration Setup](#integration-setup)
    - [Gmail](#gmail-integration)
    - [Microsoft 365 (Teams, Outlook, Calendar)](#microsoft-365-integration)
    - [Slack](#slack-integration)
    - [Discord](#discord-integration)
    - [Jira](#jira-integration)
    - [GitHub](#github-integration)
-5. [Testing & Verification](#testing--verification)
-6. [Production Deployment](#production-deployment)
-7. [Troubleshooting](#troubleshooting)
+6. [Backend Server Setup](#backend-server-setup)
+7. [Testing & Verification](#testing--verification)
+8. [Production Deployment](#production-deployment)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -34,12 +53,28 @@
 ### Recommended
 - Basic understanding of OAuth 2.0
 - Access to company IT/security team for org-wide permissions
+- Backend development experience (Node.js, Python, or similar)
 - Test environment before production rollout
 
 ### Time Commitment
-- **Basic Setup** (Anthropic only): 15 minutes
-- **Personal Integrations** (your own inbox/channels): 1-2 hours
-- **Organization-Wide Scanning**: 2-4 hours (requires IT coordination)
+- **Basic Setup** (Anthropic only, synthetic data): 15 minutes
+- **Frontend-Only** (OAuth personal access): 1-2 hours
+- **Backend + Organization-Wide**: 4-8 hours (requires server setup)
+
+### Two Implementation Paths
+
+**Path A: Frontend-Only (Limited)**
+- Configure public Client IDs in UI
+- OAuth flows for personal data access only
+- Your own inbox/channels only
+- No organization-wide scanning
+- ⚠️ Less secure, not recommended for production
+
+**Path B: Backend + Frontend (Recommended)**
+- Secure backend server stores all secrets
+- Organization-wide scanning capability
+- Production-ready security
+- Full feature set enabled
 
 ---
 
@@ -71,6 +106,42 @@ npm run dev
 ```
 
 Open `http://localhost:5173` - you should see the app running with synthetic demo data.
+
+---
+
+## Understanding Frontend vs Backend Configuration
+
+### What Can Be in Frontend (Browser)
+
+**✅ Safe for Frontend:**
+- Client IDs (public identifiers)
+- Application IDs
+- Tenant IDs
+- Redirect URIs
+- Domain names
+- Public configuration values
+
+These appear as **🟢 Frontend Safe** in the Settings UI.
+
+### What MUST Be in Backend (Server)
+
+**❌ Never in Frontend:**
+- OAuth Client Secrets
+- API Tokens (Personal Access Tokens)
+- Bot Tokens (Slack, Discord)
+- Service Account Keys (JSON files)
+- Signing Secrets
+- Any credential that grants full access
+
+These appear as **🔴 Backend Only** in the Settings UI and are disabled (cannot be entered).
+
+### Using the Settings UI
+
+1. Navigate to **Settings** in the sidebar
+2. Enable integrations you want to use
+3. **Frontend-Safe fields** - Enter directly in the UI (green badges)
+4. **Backend-Only fields** - These are disabled and show red warning
+5. For backend-only fields, see [Backend Server Setup](#backend-server-setup)
 
 ---
 
@@ -169,7 +240,11 @@ VITE_GMAIL_REDIRECT_URI=http://localhost:5173/auth/gmail/callback
 
 ### For Organization-Wide Gmail Access
 
-**Requires:** Google Workspace Super Admin access
+**Requires:** 
+- Google Workspace Super Admin access
+- **Backend server** (service account keys cannot be in frontend)
+
+**⚠️ This integration requires backend - see [Backend Server Setup](#backend-server-setup)**
 
 #### Step 1: Create Service Account
 
@@ -203,15 +278,27 @@ VITE_GMAIL_REDIRECT_URI=http://localhost:5173/auth/gmail/callback
    ```
 7. Click **Authorize**
 
-#### Step 4: Add to .env
+#### Step 4: Configure on Backend Server
+
+**🔴 All fields are Backend-Only** - These appear disabled in Settings UI:
+
+- **Service Account JSON Key**: Must be uploaded to secure backend storage
+- **Domain**: Can be configured in UI
+- **Scan All Mailboxes**: Can be configured in UI
+
+**Backend Configuration** (in backend server's `.env`):
 
 ```env
-VITE_GOOGLE_SERVICE_ACCOUNT_KEY_PATH=./gmail-service-account.json
-VITE_GOOGLE_DOMAIN=yourcompany.com
-VITE_SCAN_ALL_MAILBOXES=true
+# Backend server .env (NEVER in frontend)
+GOOGLE_SERVICE_ACCOUNT_KEY=./gmail-service-account.json
+GOOGLE_DOMAIN=yourcompany.com
+SCAN_ALL_MAILBOXES=true
 ```
 
-**⚠️ Important:** Add `gmail-service-account.json` to `.gitignore` to never commit credentials!
+**⚠️ Critical:** 
+- Service account key MUST be on backend server
+- Never commit `gmail-service-account.json`
+- See [BACKEND-SETUP-GUIDE.md](BACKEND-SETUP-GUIDE.md) for implementation
 
 ---
 
@@ -263,18 +350,37 @@ VITE_SCAN_ALL_MAILBOXES=true
 6. Click **Add permissions**
 7. Click **Grant admin consent for [Your Org]** (if available)
 
-#### Step 4: Add to .env
+#### Step 4: Configure in Settings UI
+
+**Frontend-Safe (Enter in UI):**
+1. Go to **Settings** → Enable "Microsoft 365 (Personal Access)"
+2. Enter **Client ID**: `12345678-1234-...` (🟢 Frontend Safe)
+3. Enter **Tenant ID**: `87654321-4321-...` (🟢 Frontend Safe)
+4. Enter **Redirect URI**: `http://localhost:5173/auth/microsoft/callback` (🟢 Frontend Safe)
+
+**Backend-Only (Cannot Enter in UI):**
+- **Client Secret**: Shows 🔴 Backend Only warning
+- Must be stored on backend server
+
+**Backend Configuration** (in backend server's `.env`):
 
 ```env
+# Frontend .env
 VITE_MICROSOFT_CLIENT_ID=12345678-1234-1234-1234-123456789abc
-VITE_MICROSOFT_CLIENT_SECRET=abc~123456789_your_secret_here
 VITE_MICROSOFT_TENANT_ID=87654321-4321-4321-4321-987654321abc
 VITE_MICROSOFT_REDIRECT_URI=http://localhost:5173/auth/microsoft/callback
+
+# Backend .env (NEVER in frontend)
+MICROSOFT_CLIENT_SECRET=abc~123456789_your_secret_here
 ```
 
 ### For Organization-Wide Access
 
-**Requires:** Global Administrator or Application Administrator role
+**Requires:** 
+- Global Administrator or Application Administrator role
+- **Backend server** (application permissions require server-side auth)
+
+**⚠️ This integration requires backend** - All credentials are backend-only
 
 #### Follow Steps 1-2 above, then modify Step 3:
 
@@ -292,18 +398,28 @@ VITE_MICROSOFT_REDIRECT_URI=http://localhost:5173/auth/microsoft/callback
 5. **Critical:** Click **Grant admin consent for [Your Org]**
 6. Confirm the consent
 
-#### Add to .env
+#### Configure on Backend Server
+
+**🔴 All credentials are Backend-Only:**
+
+**Backend Configuration** (in backend server's `.env`):
 
 ```env
-VITE_MICROSOFT_CLIENT_ID=your_client_id
-VITE_MICROSOFT_CLIENT_SECRET=your_client_secret
-VITE_MICROSOFT_TENANT_ID=your_tenant_id
-VITE_MICROSOFT_GRAPH_SCOPE=.default
-VITE_SCAN_ALL_MAILBOXES=true
-VITE_SCAN_ALL_TEAMS=true
+# Backend server .env (NEVER in frontend)
+MICROSOFT_CLIENT_ID=your_client_id
+MICROSOFT_CLIENT_SECRET=your_client_secret
+MICROSOFT_TENANT_ID=your_tenant_id
+MICROSOFT_GRAPH_SCOPE=.default
+SCAN_ALL_MAILBOXES=true
+SCAN_ALL_TEAMS=true
 ```
 
-**Authentication:** Use Client Credentials flow (app-only auth)
+**Settings UI:**
+- All fields show 🔴 Backend Only warnings
+- "Microsoft 365 (Organization-Wide)" integration requires backend
+- See [BACKEND-SETUP-GUIDE.md](BACKEND-SETUP-GUIDE.md) for server setup
+
+**Authentication:** Uses Client Credentials flow (app-only, server-to-server)
 
 ---
 
@@ -351,15 +467,35 @@ VITE_SCAN_ALL_TEAMS=true
 4. **Copy the Client Secret**
 5. **Copy the Signing Secret**
 
-### Step 5: Add to .env
+### Step 5: Configure (Requires Backend)
+
+**⚠️ Slack requires backend server** - Bot tokens grant full workspace access
+
+**Frontend-Safe (Enter in UI):**
+1. Go to **Settings** → Enable "Slack Workspace"
+2. Enter **Client ID**: `1234567890.1234567890` (🟢 Frontend Safe)
+3. Enter **Redirect URI**: `http://localhost:5173/auth/slack/callback` (🟢 Frontend Safe)
+
+**Backend-Only (Cannot Enter in UI):**
+All show 🔴 Backend Only warnings:
+- Client Secret
+- Signing Secret
+- Bot User OAuth Token
+
+**Backend Configuration** (in backend server's `.env`):
 
 ```env
+# Frontend .env
 VITE_SLACK_CLIENT_ID=1234567890.1234567890
-VITE_SLACK_CLIENT_SECRET=your_slack_client_secret_here
-VITE_SLACK_SIGNING_SECRET=your_slack_signing_secret_here
-VITE_SLACK_BOT_TOKEN=xoxb-your-slack-bot-token-here
 VITE_SLACK_REDIRECT_URI=http://localhost:5173/auth/slack/callback
+
+# Backend .env (NEVER in frontend)
+SLACK_CLIENT_SECRET=your_slack_client_secret_here
+SLACK_SIGNING_SECRET=your_slack_signing_secret_here
+SLACK_BOT_TOKEN=xoxb-your-slack-bot-token-here
 ```
+
+**See [BACKEND-SETUP-GUIDE.md](BACKEND-SETUP-GUIDE.md)** for complete Slack backend implementation.
 
 ### Optional: Enable Event Subscriptions (Real-time Updates)
 
@@ -416,13 +552,31 @@ VITE_SLACK_REDIRECT_URI=http://localhost:5173/auth/slack/callback
 6. Select your server
 7. Click **Authorize**
 
-### Step 5: Add to .env
+### Step 5: Configure (Requires Backend)
+
+**⚠️ Discord requires backend server** - Bot tokens grant full server access
+
+**Frontend-Safe (Enter in UI):**
+1. Go to **Settings** → Enable "Discord Server"
+2. Enter **Application ID**: `123456789012345678` (🟢 Frontend Safe)
+
+**Backend-Only (Cannot Enter in UI):**
+All show 🔴 Backend Only warnings:
+- Client Secret
+- Bot Token
+
+**Backend Configuration** (in backend server's `.env`):
 
 ```env
-VITE_DISCORD_BOT_TOKEN=MTIzNDU2Nzg5MDEyMzQ1Njc4.AbCdEf.GhIjKlMnOpQrStUvWxYz123456
+# Frontend .env
 VITE_DISCORD_CLIENT_ID=123456789012345678
-VITE_DISCORD_CLIENT_SECRET=abcdef123456789abcdef123456789ab
+
+# Backend .env (NEVER in frontend)
+DISCORD_CLIENT_SECRET=abcdef123456789abcdef123456789ab
+DISCORD_BOT_TOKEN=MTIzNDU2Nzg5MDEyMzQ1Njc4.AbCdEf.GhIjKlMnOpQrStUvWxYz123456
 ```
+
+**See [BACKEND-SETUP-GUIDE.md](BACKEND-SETUP-GUIDE.md)** for Discord backend setup.
 
 ---
 
@@ -442,13 +596,31 @@ VITE_DISCORD_CLIENT_SECRET=abcdef123456789abcdef123456789ab
 
 Your Jira Cloud domain is typically: `yourcompany.atlassian.net`
 
-### Step 3: Add to .env
+### Step 3: Configure (Requires Backend)
+
+**⚠️ Jira requires backend server** - API tokens grant full account access
+
+**Frontend-Safe (Enter in UI):**
+1. Go to **Settings** → Enable "Jira Cloud"
+2. Enter **Domain**: `yourcompany.atlassian.net` (🟢 Frontend Safe)
+
+**Backend-Only (Cannot Enter in UI):**
+All show 🔴 Backend Only warnings:
+- Account Email
+- API Token
+
+**Backend Configuration** (in backend server's `.env`):
 
 ```env
-VITE_JIRA_DOMAIN=yourcompany.atlassian.net
-VITE_JIRA_EMAIL=your.email@company.com
-VITE_JIRA_API_TOKEN=ATATT3xFfGF0abcdefghijklmnopqrstuvwxyz123456
+# Frontend .env (or configure in UI)
+JIRA_DOMAIN=yourcompany.atlassian.net
+
+# Backend .env (NEVER in frontend)
+JIRA_EMAIL=your.email@company.com
+JIRA_API_TOKEN=ATATT3xFfGF0abcdefghijklmnopqrstuvwxyz123456
 ```
+
+**See [BACKEND-SETUP-GUIDE.md](BACKEND-SETUP-GUIDE.md)** for Jira backend implementation.
 
 ---
 
@@ -496,6 +668,78 @@ VITE_GITHUB_REDIRECT_URI=http://localhost:5173/auth/github/callback
 
 ---
 
+## Backend Server Setup
+
+**Most integrations require a backend server.** This is not optional for production use.
+
+### Why Backend is Required
+
+**Security:** Secrets and tokens that grant full access must never be in browser code:
+- OAuth Client Secrets
+- Bot Tokens (Slack, Discord)
+- Service Account Keys (Google, Microsoft)
+- Personal Access Tokens (GitHub, Jira)
+
+**Capabilities:** Organization-wide scanning requires server-side authentication:
+- Application permissions (vs. delegated)
+- Service accounts with domain-wide delegation
+- Bot tokens for workspace access
+
+### Quick Start
+
+See **[BACKEND-SETUP-GUIDE.md](BACKEND-SETUP-GUIDE.md)** for complete implementation including:
+
+1. **Node.js + Express Backend Template**
+   - Pre-configured API endpoints
+   - Security middleware
+   - OAuth token exchange
+   - Integration proxies
+
+2. **Environment Configuration**
+   - Backend `.env` setup
+   - Secret storage best practices
+   - Production secrets management
+
+3. **API Endpoints**
+   - `/api/gmail/messages` - Proxy to Gmail API
+   - `/api/microsoft/messages` - Proxy to Microsoft Graph
+   - `/api/slack/messages` - Proxy to Slack API
+   - `/api/discord/messages` - Proxy to Discord API
+   - `/api/jira/issues` - Proxy to Jira API
+   - `/api/github/notifications` - Proxy to GitHub API
+   - `/api/ai/analyze` - Secure Claude AI proxy
+
+4. **Deployment Guide**
+   - Railway, Render, Heroku
+   - AWS, Azure, Google Cloud
+   - Docker containerization
+
+### Frontend Integration
+
+Update frontend to call backend instead of external APIs directly:
+
+```typescript
+// src/services/apiClient.ts
+const API_BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+
+export const backendAPI = {
+  gmail: {
+    fetchMessages: () => fetch(`${API_BASE}/api/gmail/messages`).then(r => r.json()),
+  },
+  // ... other integrations
+};
+```
+
+Add to frontend `.env`:
+
+```env
+VITE_BACKEND_URL=http://localhost:3001
+```
+
+**Critical:** Backend must be running before frontend can access real data.
+
+---
+
 ## Testing & Verification
 
 ### Step 1: Verify Environment
@@ -532,9 +776,18 @@ npm run dev
 ### Step 5: Test Integrations
 
 1. Navigate to **Settings** (in sidebar)
-2. Check each enabled integration shows **green checkmark**
-3. If yellow warning: credentials not configured
-4. If red X: check credentials and permissions
+2. Review security indicators:
+   - 🟢 **Frontend Safe** fields - Can be configured in UI
+   - 🔴 **Backend Only** fields - Must be on backend server
+   - **Backend Required** badge - Integration needs server
+3. For enabled integrations:
+   - Green checkmark: Connected and working
+   - Yellow warning: Credentials not configured
+   - Red X: Check credentials, permissions, or backend connection
+4. If backend required:
+   - Ensure backend server is running
+   - Verify `VITE_BACKEND_URL` is set correctly
+   - Check backend logs for errors
 
 ### Step 6: Test Data Flow
 
@@ -565,10 +818,23 @@ vercel
 # Settings → Environment Variables → Add each VITE_* variable
 ```
 
-### Option 2: Docker
+### Step 3: Deploy Both with Docker (Alternative)
+
+**Backend Dockerfile:**
 
 ```dockerfile
-# Dockerfile
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+EXPOSE 3001
+CMD ["npm", "start"]
+```
+
+**Frontend Dockerfile:**
+
+```dockerfile
 FROM node:18-alpine
 WORKDIR /app
 COPY package*.json ./
@@ -579,10 +845,33 @@ EXPOSE 5173
 CMD ["npm", "run", "preview"]
 ```
 
+**Docker Compose:**
+
+```yaml
+version: '3.8'
+services:
+  backend:
+    build: ./strategic-advisor-backend
+    ports:
+      - "3001:3001"
+    env_file:
+      - ./strategic-advisor-backend/.env
+    
+  frontend:
+    build: ./strategic-coworker-app
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_BACKEND_URL=http://backend:3001
+    env_file:
+      - ./strategic-coworker-app/.env
+    depends_on:
+      - backend
+```
+
 ```bash
-# Build and run
-docker build -t strategic-advisor .
-docker run -p 5173:5173 --env-file .env strategic-advisor
+# Build and run both
+docker-compose up -d
 ```
 
 ### Option 3: Traditional Hosting
@@ -664,6 +953,30 @@ npm run build
 4. Check workspace/organization admin settings
 5. May need to wait for permission propagation (up to 24hrs)
 
+### "Backend Connection Failed"
+
+**Problem:** Frontend cannot reach backend
+
+**Solution:**
+1. Verify backend server is running
+2. Check `VITE_BACKEND_URL` is correct
+3. Ensure CORS is configured on backend
+4. Check firewall/network rules
+5. Verify backend health endpoint: `GET /api/health`
+6. Check browser console for CORS errors
+
+### "Secrets Exposed Warning"
+
+**Problem:** Security scanner detects secrets in frontend code
+
+**Solution:**
+1. Remove ALL secrets from frontend `.env`
+2. Move to backend `.env`
+3. Update frontend to call backend API
+4. Never commit `.env` files
+5. Use backend proxy for all API calls
+6. Review Settings UI - only enter 🟢 Frontend Safe fields
+
 ---
 
 ## Support & Resources
@@ -686,15 +999,30 @@ npm run build
 
 ## Security Checklist
 
+### Frontend
 ✅ `.env` file is in `.gitignore` (never commit!)  
-✅ Service account keys stored securely  
+✅ Only `VITE_*` frontend-safe variables in frontend `.env`  
+✅ No secrets (Client Secrets, Tokens) in frontend code  
 ✅ OAuth redirect URIs use HTTPS in production  
+✅ Settings UI used only for 🟢 Frontend Safe fields  
+
+### Backend
+✅ Backend server deployed and secured  
+✅ All secrets stored in backend `.env` or secrets manager  
+✅ Service account keys never exposed to frontend  
+✅ API proxy endpoints implemented  
+✅ CORS configured to allow only your frontend domain  
+✅ Rate limiting enabled on API endpoints  
+✅ Backend authentication/authorization implemented  
+
+### General
 ✅ API keys rotated every 90 days  
 ✅ Minimum required permissions granted  
 ✅ Audit logs enabled on integrated platforms  
 ✅ Employee notification provided (for org-wide scanning)  
 ✅ Data retention policy documented  
 ✅ Compliance review completed (GDPR, SOC2, etc.)  
+✅ Security scanning enabled in CI/CD pipeline  
 
 ---
 
@@ -702,15 +1030,18 @@ npm run build
 
 After successful setup:
 
-1. ✅ Configure your first integration
-2. ✅ Test with your own data
-3. ✅ Review daily briefings for a week
-4. ✅ Customize system prompt if needed (`src/prompts/ceo-system-prompt.ts`)
-5. ✅ Add more integrations gradually
-6. ✅ Train team members on using the tool
-7. ✅ Set up organization-wide scanning (with IT team)
-8. ✅ Schedule regular API key rotation
-9. ✅ Monitor usage and costs
+1. ✅ **Deploy backend server** (required for production)
+2. ✅ Configure frontend-safe values in Settings UI
+3. ✅ Configure backend-only secrets on server
+4. ✅ Test with your own data
+5. ✅ Review daily briefings for a week
+6. ✅ Customize system prompt if needed (`src/prompts/ceo-system-prompt.ts`)
+7. ✅ Add more integrations gradually
+8. ✅ Set up organization-wide scanning (with backend + IT team)
+9. ✅ Train team members on using the tool
+10. ✅ Schedule regular API key rotation
+11. ✅ Monitor usage and costs
+12. ✅ Review backend security regularly
 
 ---
 
