@@ -1,282 +1,186 @@
 /**
- * Voice API Endpoints for Siri Integration
- * 
- * These endpoints allow Siri to query the AGI and get spoken responses
- * without opening the app.
+ * Voice API Endpoints
+ * RESTful API for Siri Shortcuts and voice integrations
  */
 
-import { Request, Response } from 'express';
-import { monitoringService } from '../services/monitoringService';
-import { AGI_STRATEGIC_PROMPT } from '../prompts/agi-strategic-prompt';
+import express from 'express';
+import cors from 'cors';
+import { voiceResponseService } from '../services/voiceResponseService';
 
-/**
- * Format response for voice (natural, conversational)
- */
-function formatForVoice(text: string): string {
-  // Remove markdown formatting
-  let voice = text
-    .replace(/#{1,6}\s/g, '') // Remove headers
-    .replace(/\*\*(.+?)\*\*/g, '$1') // Remove bold
-    .replace(/\*(.+?)\*/g, '$1') // Remove italics
-    .replace(/`(.+?)`/g, '$1') // Remove code blocks
-    .replace(/\[(.+?)\]\(.+?\)/g, '$1') // Remove links, keep text
-    .replace(/[-*+]\s/g, '') // Remove bullet points
-    .replace(/\n{3,}/g, '\n\n') // Reduce multiple newlines
-    .trim();
-  
-  return voice;
-}
+const app = express();
+const PORT = 3001;
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.text());
 
 /**
  * GET /api/voice/critical
- * Returns critical items in voice-friendly format
+ * Returns critical items formatted for voice
  */
-export async function getCriticalItems(req: Request, res: Response) {
+app.get('/api/voice/critical', async (req, res) => {
   try {
-    const items = monitoringService.getCriticalItems();
-    
-    if (items.length === 0) {
-      return res.json({
-        success: true,
-        text: "No critical items detected. Everything looks good.",
-        count: 0
-      });
-    }
-    
-    // Format for voice
-    const summary = items.length === 1
-      ? `You have 1 critical item requiring attention: ${items[0].title}`
-      : `You have ${items.length} critical items requiring attention: ${items.map((item, i) => `${i + 1}. ${item.title}`).join('. ')}`;
-    
+    const response = await voiceResponseService.getCriticalItemsVoice();
     res.json({
-      success: true,
-      text: formatForVoice(summary),
-      count: items.length,
-      items: items.map(item => ({
-        title: item.title,
-        source: item.source,
-        priority: item.priority,
-        timestamp: item.timestamp
-      }))
+      text: response.text,
+      priority: response.priority,
+      timestamp: response.timestamp,
+      itemCount: response.itemCount,
     });
   } catch (error) {
-    console.error('Voice API - Critical items error:', error);
+    console.error('Error getting critical items:', error);
     res.status(500).json({
-      success: false,
-      text: "I encountered an error retrieving critical items. Please check the app."
+      text: 'Sorry, I encountered an error retrieving critical items.',
+      priority: 'normal',
+      timestamp: new Date(),
     });
   }
-}
+});
 
 /**
  * GET /api/voice/summary
- * Returns daily summary in voice-friendly format
+ * Returns daily summary formatted for voice
  */
-export async function getDailySummary(req: Request, res: Response) {
+app.get('/api/voice/summary', async (req, res) => {
   try {
-    const items = monitoringService.getAllItems();
-    const critical = items.filter(i => i.priority === 'critical').length;
-    const high = items.filter(i => i.priority === 'high').length;
-    const medium = items.filter(i => i.priority === 'medium').length;
-    
-    let summary = `Here's your strategic summary. `;
-    
-    if (critical > 0) {
-      summary += `${critical} critical ${critical === 1 ? 'item' : 'items'} requiring immediate attention. `;
-    }
-    
-    if (high > 0) {
-      summary += `${high} high priority ${high === 1 ? 'item' : 'items'}. `;
-    }
-    
-    if (medium > 0) {
-      summary += `${medium} medium priority ${medium === 1 ? 'item' : 'items'}. `;
-    }
-    
-    if (critical === 0 && high === 0 && medium === 0) {
-      summary = "Your strategic dashboard is clear. No urgent items detected.";
-    }
-    
+    const response = await voiceResponseService.getDailySummaryVoice();
     res.json({
-      success: true,
-      text: formatForVoice(summary),
-      stats: {
-        critical,
-        high,
-        medium,
-        total: items.length
-      }
+      text: response.text,
+      priority: response.priority,
+      timestamp: response.timestamp,
+      itemCount: response.itemCount,
     });
   } catch (error) {
-    console.error('Voice API - Summary error:', error);
+    console.error('Error getting summary:', error);
     res.status(500).json({
-      success: false,
-      text: "I encountered an error generating your summary."
+      text: 'Sorry, I encountered an error retrieving your summary.',
+      priority: 'normal',
+      timestamp: new Date(),
     });
   }
-}
+});
 
 /**
  * GET /api/voice/status
- * Returns current monitoring status
+ * Returns system status formatted for voice
  */
-export async function getStatus(req: Request, res: Response) {
+app.get('/api/voice/status', async (req, res) => {
   try {
-    const status = monitoringService.getStatus();
-    const lastRun = status.lastRun ? new Date(status.lastRun) : null;
-    const minutesAgo = lastRun 
-      ? Math.round((Date.now() - lastRun.getTime()) / 60000)
-      : null;
-    
-    let text = `Monitoring is ${status.running ? 'active' : 'inactive'}. `;
-    
-    if (lastRun && minutesAgo !== null) {
-      text += `Last scan was ${minutesAgo} ${minutesAgo === 1 ? 'minute' : 'minutes'} ago. `;
-    }
-    
-    text += `Watching ${status.activeChannels || 0} channels.`;
-    
+    const response = await voiceResponseService.getStatusVoice();
     res.json({
-      success: true,
-      text: formatForVoice(text),
-      status: {
-        running: status.running,
-        lastRun: status.lastRun,
-        activeChannels: status.activeChannels
-      }
+      text: response.text,
+      priority: response.priority,
+      timestamp: response.timestamp,
     });
   } catch (error) {
-    console.error('Voice API - Status error:', error);
+    console.error('Error getting status:', error);
     res.status(500).json({
-      success: false,
-      text: "I encountered an error checking system status."
+      text: 'Sorry, I encountered an error checking system status.',
+      priority: 'normal',
+      timestamp: new Date(),
     });
   }
-}
+});
 
 /**
  * POST /api/voice/query
- * Process natural language query and return voice response
+ * Process natural language query
+ * Body: { "query": "what's critical?" }
  */
-export async function processQuery(req: Request, res: Response) {
+app.post('/api/voice/query', async (req, res) => {
   try {
-    const { query } = req.body;
+    const query = typeof req.body === 'string' ? req.body : req.body.query;
     
-    if (!query || typeof query !== 'string') {
+    if (!query) {
       return res.status(400).json({
-        success: false,
-        text: "I didn't receive a valid query. Please try again."
+        text: 'Please provide a query.',
+        priority: 'normal',
+        timestamp: new Date(),
       });
     }
     
-    // Get relevant context
-    const items = monitoringService.getAllItems();
-    const critical = items.filter(i => i.priority === 'critical');
-    const high = items.filter(i => i.priority === 'high');
-    
-    // Simple query routing (can be enhanced with LLM)
-    const lowerQuery = query.toLowerCase();
-    
-    if (lowerQuery.includes('critical') || lowerQuery.includes('urgent')) {
-      return getCriticalItems(req, res);
-    }
-    
-    if (lowerQuery.includes('summary') || lowerQuery.includes('overview') || lowerQuery.includes('update')) {
-      return getDailySummary(req, res);
-    }
-    
-    if (lowerQuery.includes('status') || lowerQuery.includes('running') || lowerQuery.includes('monitoring')) {
-      return getStatus(req, res);
-    }
-    
-    // Default response with context
-    let response = `Based on current monitoring, `;
-    
-    if (critical.length > 0) {
-      response += `you have ${critical.length} critical ${critical.length === 1 ? 'item' : 'items'}. `;
-    } else if (high.length > 0) {
-      response += `you have ${high.length} high priority ${high.length === 1 ? 'item' : 'items'}. `;
-    } else {
-      response += `everything looks good. `;
-    }
-    
-    response += `For specific insights, try asking about critical items, summary, or status.`;
-    
+    const response = await voiceResponseService.processQueryVoice(query);
     res.json({
-      success: true,
-      text: formatForVoice(response),
-      query: query
+      text: response.text,
+      priority: response.priority,
+      timestamp: response.timestamp,
+      itemCount: response.itemCount,
     });
   } catch (error) {
-    console.error('Voice API - Query error:', error);
+    console.error('Error processing query:', error);
     res.status(500).json({
-      success: false,
-      text: "I encountered an error processing your query."
+      text: 'Sorry, I encountered an error processing your query.',
+      priority: 'normal',
+      timestamp: new Date(),
     });
   }
-}
+});
 
 /**
- * GET /api/voice/briefing
- * Returns comprehensive morning/evening briefing
+ * GET /api/voice/briefing/:timeOfDay
+ * Get scheduled briefing (morning, midday, evening)
  */
-export async function getBriefing(req: Request, res: Response) {
+app.get('/api/voice/briefing/:timeOfDay', async (req, res) => {
   try {
-    const { type = 'morning' } = req.query;
-    const items = monitoringService.getAllItems();
-    const critical = items.filter(i => i.priority === 'critical');
-    const high = items.filter(i => i.priority === 'high');
-    const today = new Date().toLocaleDateString('en-US', { 
-      weekday: 'long', 
-      month: 'long', 
-      day: 'numeric' 
-    });
+    const { timeOfDay } = req.params;
     
-    let briefing = '';
-    
-    if (type === 'morning') {
-      briefing = `Good morning. Here's your briefing for ${today}. `;
-    } else {
-      briefing = `Good evening. Here's your end of day summary for ${today}. `;
-    }
-    
-    // Critical items first
-    if (critical.length > 0) {
-      briefing += `You have ${critical.length} critical ${critical.length === 1 ? 'item' : 'items'} requiring immediate attention: `;
-      critical.slice(0, 3).forEach((item, i) => {
-        briefing += `${i + 1}. ${item.title}. `;
+    if (!['morning', 'midday', 'evening'].includes(timeOfDay)) {
+      return res.status(400).json({
+        text: 'Invalid time of day. Use morning, midday, or evening.',
+        priority: 'normal',
+        timestamp: new Date(),
       });
-      if (critical.length > 3) {
-        briefing += `And ${critical.length - 3} more critical items. `;
-      }
     }
     
-    // High priority items
-    if (high.length > 0) {
-      briefing += `${high.length} high priority ${high.length === 1 ? 'item' : 'items'} to address today. `;
-    }
-    
-    // All clear
-    if (critical.length === 0 && high.length === 0) {
-      briefing += `Your strategic dashboard is clear. Focus on your planned priorities.`;
-    }
+    const response = await voiceResponseService.getProactiveInsightVoice(
+      timeOfDay as 'morning' | 'midday' | 'evening'
+    );
     
     res.json({
-      success: true,
-      text: formatForVoice(briefing),
-      type: type,
-      date: today,
-      stats: {
-        critical: critical.length,
-        high: high.length,
-        total: items.length
-      }
+      text: response.text,
+      priority: response.priority,
+      timestamp: response.timestamp,
+      itemCount: response.itemCount,
     });
   } catch (error) {
-    console.error('Voice API - Briefing error:', error);
+    console.error('Error getting briefing:', error);
     res.status(500).json({
-      success: false,
-      text: "I encountered an error generating your briefing."
+      text: 'Sorry, I encountered an error retrieving your briefing.',
+      priority: 'normal',
+      timestamp: new Date(),
     });
   }
-}
+});
+
+/**
+ * GET /api/voice/health
+ * Health check endpoint
+ */
+app.get('/api/voice/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    timestamp: new Date(),
+    endpoints: [
+      '/api/voice/critical',
+      '/api/voice/summary',
+      '/api/voice/status',
+      '/api/voice/query',
+      '/api/voice/briefing/:timeOfDay',
+    ],
+  });
+});
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`✅ Voice API Server running on http://localhost:${PORT}`);
+  console.log(`📱 Available endpoints:`);
+  console.log(`   GET  /api/voice/critical - Get critical items`);
+  console.log(`   GET  /api/voice/summary - Get daily summary`);
+  console.log(`   GET  /api/voice/status - Get system status`);
+  console.log(`   POST /api/voice/query - Process voice query`);
+  console.log(`   GET  /api/voice/briefing/:timeOfDay - Get scheduled briefing`);
+  console.log(`   GET  /api/voice/health - Health check`);
+});
+
+export default app;
