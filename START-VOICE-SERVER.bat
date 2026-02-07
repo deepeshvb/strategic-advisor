@@ -6,6 +6,6 @@ echo.
 echo Starting on port 3001...
 echo.
 
-node voice-server.js
+node voice-server.cjs
 
 pause
