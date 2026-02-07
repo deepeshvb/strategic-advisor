@@ -15,5 +15,13 @@ export default defineConfig({
       '.cfargotunnel.com',
       'localhost',
     ],
+    proxy: {
+      // Proxy Voice API requests through main dev server
+      '/api/voice': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   },
 })
