@@ -24,6 +24,7 @@ import {
   beerMuleService,
   Brewery,
   ShopUrlEntry,
+  ShopUrlMode,
   TrackedBeer,
   PurchaseAttempt,
   MonitorEvent,
@@ -192,9 +193,11 @@ const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 function AddBreweryForm({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
   const [igHandle, setIgHandle] = useState('');
+  const [shopUrlMode, setShopUrlMode] = useState<ShopUrlMode>('from_post');
   const [shopUrls, setShopUrls] = useState<ShopUrlEntry[]>([
     { url: '', label: 'Weekday Shop', activeDays: [1, 2, 3, 4, 5] },
   ]);
+  const [shopUrlPatterns, setShopUrlPatterns] = useState('square.site, squareup.com');
   const [releaseDays, setReleaseDays] = useState<number[]>([2, 5]);
   const [releaseTime, setReleaseTime] = useState('12:00');
   const [maxQty, setMaxQty] = useState(2);
@@ -230,7 +233,9 @@ function AddBreweryForm({ onClose }: { onClose: () => void }) {
       name: name.trim(),
       instagramHandle: igHandle.trim().replace(/^@/, ''),
       shopUrl: validShops[0]?.url || '',
-      shopUrls: validShops,
+      shopUrls: shopUrlMode === 'fixed' ? validShops : [],
+      shopUrlMode,
+      shopUrlPatterns: shopUrlPatterns.split(',').map(p => p.trim()).filter(Boolean),
       releaseDays,
       releaseTimeHint: releaseTime,
       maxQuantity: maxQty,
@@ -279,61 +284,114 @@ function AddBreweryForm({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
-      {/* Multiple Shop URLs */}
+      {/* Shop URL Mode */}
       <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className="block text-sm text-gray-400">
-            <Store className="inline w-3.5 h-3.5 mr-1" />
-            Shop URLs (different sites for different days)
-          </label>
-          <button onClick={addShopUrl} className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1">
-            <Plus className="w-3 h-3" /> Add Shop URL
+        <label className="block text-sm text-gray-400 mb-2">
+          <Store className="inline w-3.5 h-3.5 mr-1" />
+          How does this brewery publish ordering links?
+        </label>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setShopUrlMode('from_post')}
+            className={`flex-1 p-3 rounded-lg border text-left text-sm transition-colors ${
+              shopUrlMode === 'from_post'
+                ? 'border-amber-500 bg-amber-900/20 text-white'
+                : 'border-slate-600 bg-slate-700/50 text-gray-400 hover:border-slate-500'
+            }`}
+          >
+            <strong className="block mb-1">URL in each post</strong>
+            <span className="text-xs">Brewery posts a unique ordering link (e.g. Square) in each release post. Beer Mule extracts it automatically.</span>
+          </button>
+          <button
+            onClick={() => setShopUrlMode('fixed')}
+            className={`flex-1 p-3 rounded-lg border text-left text-sm transition-colors ${
+              shopUrlMode === 'fixed'
+                ? 'border-amber-500 bg-amber-900/20 text-white'
+                : 'border-slate-600 bg-slate-700/50 text-gray-400 hover:border-slate-500'
+            }`}
+          >
+            <strong className="block mb-1">Fixed shop URL(s)</strong>
+            <span className="text-xs">Brewery has a permanent online shop (or different weekday/weekend URLs).</span>
           </button>
         </div>
-        <div className="space-y-3">
-          {shopUrls.map((shop, idx) => (
-            <div key={idx} className="bg-slate-700/50 rounded-lg p-3 space-y-2">
-              <div className="flex gap-2">
-                <input
-                  value={shop.label}
-                  onChange={e => updateShopUrl(idx, { label: e.target.value })}
-                  placeholder="Label (e.g. Weekday Orders)"
-                  className="w-40 bg-slate-700 text-white rounded px-2 py-1.5 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
-                />
-                <input
-                  value={shop.url}
-                  onChange={e => updateShopUrl(idx, { url: e.target.value })}
-                  placeholder="https://troonbrewing.com/weekday-shop"
-                  className="flex-1 bg-slate-700 text-white rounded px-2 py-1.5 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
-                />
-                {shopUrls.length > 1 && (
-                  <button onClick={() => removeShopUrl(idx)} className="text-red-500 hover:text-red-400 px-1">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">Active days:</span>
-                {DAY_LABELS.map((label, d) => (
-                  <button
-                    key={d}
-                    onClick={() => toggleShopDay(idx, d)}
-                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                      shop.activeDays.includes(d)
-                        ? 'bg-amber-600 text-white'
-                        : 'bg-slate-600 text-gray-400 hover:bg-slate-500'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-                <span className="text-[10px] text-gray-600 ml-1">(empty = every day)</span>
-              </div>
-            </div>
-          ))}
-        </div>
-        <p className="text-xs text-gray-500 mt-1">Troon example: add "Weekday Orders" (Mon–Fri) and "Weekend Orders" (Sat–Sun) with different URLs. Beer Mule picks the right shop based on the day.</p>
       </div>
+
+      {/* URL-from-post mode: pattern hints */}
+      {shopUrlMode === 'from_post' && (
+        <div className="bg-amber-900/10 border border-amber-700/30 rounded-lg p-4 space-y-3">
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">URL patterns to look for in posts</label>
+            <input
+              value={shopUrlPatterns}
+              onChange={e => setShopUrlPatterns(e.target.value)}
+              placeholder="e.g. square.site, squareup.com"
+              className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Comma-separated domain fragments. Beer Mule scans each Instagram post for URLs containing these patterns.
+              For Troon (Square): <code className="text-amber-400">square.site, squareup.com</code>
+            </p>
+          </div>
+          <p className="text-xs text-gray-400">
+            How it works: when @{igHandle || 'brewery'} posts on Instagram, Beer Mule instantly scans the post text for a URL matching these patterns,
+            then navigates directly to that URL to purchase. Each release gets its own unique link — no fixed shop URL needed.
+          </p>
+        </div>
+      )}
+
+      {/* Fixed shop URLs */}
+      {shopUrlMode === 'fixed' && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm text-gray-400">Shop URLs (different sites for different days)</label>
+            <button onClick={addShopUrl} className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1">
+              <Plus className="w-3 h-3" /> Add Shop URL
+            </button>
+          </div>
+          <div className="space-y-3">
+            {shopUrls.map((shop, idx) => (
+              <div key={idx} className="bg-slate-700/50 rounded-lg p-3 space-y-2">
+                <div className="flex gap-2">
+                  <input
+                    value={shop.label}
+                    onChange={e => updateShopUrl(idx, { label: e.target.value })}
+                    placeholder="Label (e.g. Weekday Orders)"
+                    className="w-40 bg-slate-700 text-white rounded px-2 py-1.5 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+                  />
+                  <input
+                    value={shop.url}
+                    onChange={e => updateShopUrl(idx, { url: e.target.value })}
+                    placeholder="https://brewery.com/shop"
+                    className="flex-1 bg-slate-700 text-white rounded px-2 py-1.5 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+                  />
+                  {shopUrls.length > 1 && (
+                    <button onClick={() => removeShopUrl(idx)} className="text-red-500 hover:text-red-400 px-1">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500">Active days:</span>
+                  {DAY_LABELS.map((label, d) => (
+                    <button
+                      key={d}
+                      onClick={() => toggleShopDay(idx, d)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                        shop.activeDays.includes(d)
+                          ? 'bg-amber-600 text-white'
+                          : 'bg-slate-600 text-gray-400 hover:bg-slate-500'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  <span className="text-[10px] text-gray-600 ml-1">(empty = every day)</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Release days */}
       <div>
@@ -419,13 +477,15 @@ function BreweryCard({
             <p className="text-xs text-gray-400 truncate">
               <Instagram className="inline w-3 h-3 mr-1" />
               @{brewery.instagramHandle}
-              {(brewery.shopUrls?.length > 0 || brewery.shopUrl) && (
+              {' · '}
+              {brewery.shopUrlMode === 'from_post' ? (
+                <span className="text-amber-400">URL from post</span>
+              ) : (brewery.shopUrls?.length > 0 || brewery.shopUrl) ? (
                 <>
-                  {' · '}
                   <Store className="inline w-3 h-3 mr-1" />
                   {brewery.shopUrls?.length > 1 ? `${brewery.shopUrls.length} shops` : 'Shop'}
                 </>
-              )}
+              ) : null}
             </p>
           </div>
         </div>

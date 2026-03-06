@@ -23,6 +23,8 @@ export interface ShopUrlEntry {
   activeDays: number[];
 }
 
+export type ShopUrlMode = 'fixed' | 'from_post';
+
 export interface Brewery {
   id: string;
   name: string;
@@ -31,6 +33,15 @@ export interface Brewery {
   shopUrl: string;
   /** Multiple shop URLs, each with a label and active days (e.g. weekday vs weekend site). */
   shopUrls: ShopUrlEntry[];
+  /**
+   * How to determine the shop URL:
+   * - 'fixed': use pre-configured shopUrls (e.g. brewery has a permanent online shop)
+   * - 'from_post': extract the ordering URL from the Instagram post itself
+   *   (e.g. Troon publishes a unique Square link in each release post)
+   */
+  shopUrlMode: ShopUrlMode;
+  /** URL pattern hints for extracting links from posts (e.g. 'square.site', 'squareup.com'). */
+  shopUrlPatterns: string[];
   /** Days the brewery typically releases (0=Sun … 6=Sat) */
   releaseDays: number[];
   /** Optional release window, e.g. "12:00" (24h). Agent polls faster inside window. */
@@ -345,6 +356,20 @@ class BeerMuleService {
   }
 
   /**
+   * Extract URLs from post text. Looks for http/https links,
+   * optionally filtered by the brewery's shopUrlPatterns.
+   */
+  extractUrlsFromPost(text: string, patterns: string[]): string[] {
+    const urlRegex = /https?:\/\/[^\s,)"'<>]+/gi;
+    const allUrls = text.match(urlRegex) || [];
+    if (patterns.length === 0) return allUrls;
+    return allUrls.filter(url => {
+      const lower = url.toLowerCase();
+      return patterns.some(p => lower.includes(p.toLowerCase()));
+    });
+  }
+
+  /**
    * Poll a single brewery's Instagram feed for new release posts.
    * 
    * In production this would hit an Instagram scraper / proxy API.
@@ -370,9 +395,28 @@ class BeerMuleService {
         const lowerText = post.text.toLowerCase();
         const isRelease = allKeywords.some(kw => lowerText.includes(kw.toLowerCase()));
         if (isRelease) {
-          this.addEvent(brewery.id, 'release_detected', `🚨 Release detected from @${brewery.instagramHandle}: "${post.text.substring(0, 100)}..."`, { postUrl: post.url });
+          let shopUrl = post.url;
+
+          if (brewery.shopUrlMode === 'from_post') {
+            const extracted = this.extractUrlsFromPost(post.text, brewery.shopUrlPatterns || []);
+            if (extracted.length > 0) {
+              shopUrl = extracted[0];
+              this.addEvent(brewery.id, 'release_detected',
+                `🚨 Release detected from @${brewery.instagramHandle}! Ordering URL found in post: ${shopUrl}`,
+                { postUrl: post.url, shopUrl });
+            } else {
+              this.addEvent(brewery.id, 'release_detected',
+                `🚨 Release detected from @${brewery.instagramHandle} but no ordering URL found in post text. Post: "${post.text.substring(0, 120)}..."`,
+                { postUrl: post.url });
+            }
+          } else {
+            this.addEvent(brewery.id, 'release_detected',
+              `🚨 Release detected from @${brewery.instagramHandle}: "${post.text.substring(0, 100)}..."`,
+              { postUrl: post.url });
+          }
+
           if (this.config.autoPurchaseEnabled) {
-            await this.attemptPurchase(brewery, post.text, post.url);
+            await this.attemptPurchase(brewery, post.text, shopUrl);
           }
         }
       }
@@ -476,6 +520,33 @@ class BeerMuleService {
     ];
     const beerName = sampleBeers[Math.floor(Math.random() * sampleBeers.length)];
     const qty = brewery.maxQuantity || 2;
+
+    if (brewery.shopUrlMode === 'from_post') {
+      const fakeSquareId = Math.random().toString(36).slice(2, 10);
+      const fakePostUrl = `https://${brewery.instagramHandle.replace(/[^a-z0-9]/g, '')}.square.site/${fakeSquareId}`;
+      this.addEvent(brewery.id, 'release_detected',
+        `🚨 SIMULATED release from @${brewery.instagramHandle}: "${beerName}" — ordering URL extracted from post: ${fakePostUrl}`);
+
+      const attempt: PurchaseAttempt = {
+        id: `purchase-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        breweryId: brewery.id,
+        breweryName: brewery.name,
+        beerName,
+        detectedAt: new Date(),
+        attemptedAt: new Date(),
+        completedAt: new Date(),
+        status: 'success',
+        quantity: qty,
+        totalPrice: +(Math.random() * 40 + 15).toFixed(2),
+        sourcePostUrl: fakePostUrl,
+      };
+      this.purchases.push(attempt);
+      this.addEvent(brewery.id, 'purchase_success',
+        `✅ SIMULATED purchase: ${qty}x "${beerName}" from ${brewery.name} via post URL ${fakePostUrl} — $${attempt.totalPrice}`);
+      this.notify();
+      return;
+    }
+
     const shop = this.getActiveShopUrl(brewery);
     const shopInfo = shop ? ` | Shop: ${shop.label} (${shop.url})` : '';
 
