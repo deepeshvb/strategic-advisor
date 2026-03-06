@@ -23,9 +23,11 @@ import {
   UtensilsCrossed,
   Calendar,
   Bell,
-  LayoutDashboard
+  LayoutDashboard,
+  Beer
 } from 'lucide-react';
 import { LobsterBackground } from './LobsterBackground';
+import BeerMule from './BeerMule';
 
 interface Config {
   ceo: {
@@ -1712,6 +1714,7 @@ export const ConfigDashboard: React.FC = () => {
               { id: 'general', label: 'General', icon: Settings, desc: 'Contact, companies, users' },
               { id: 'strategic-advisor', label: 'Chanakya', icon: Sparkles, desc: 'Monitoring, briefings, LLM' },
               { id: 'travel-agent', label: 'Henry', icon: Plane, desc: 'Travel — trip plans, booking, payment' },
+              { id: 'beer-mule', label: 'Beer Mule', icon: Beer, desc: 'Track & auto-buy limited beer releases' },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -2868,6 +2871,9 @@ export const ConfigDashboard: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Beer Mule — auto-purchase limited beer releases */}
+        {activeTab === 'beer-mule' && <BeerMule />}
 
       {/* Channel Configuration Modal */}
       {configureModal && (
