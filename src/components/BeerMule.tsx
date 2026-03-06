@@ -22,6 +22,7 @@ import {
   Search,
   MapPin,
   MessageCircle,
+  CreditCard,
 } from 'lucide-react';
 import {
   beerMuleService,
@@ -31,6 +32,7 @@ import {
   PaymentProvider,
   PaymentProviderConfig,
   PAYMENT_PROVIDER_PATTERNS,
+  SavedPaymentMethod,
   BeerHunt,
   BeerHuntSource,
   BeerSighting,
@@ -547,7 +549,39 @@ function BreweryCard({
   onToggle: () => void;
 }) {
   const [showAddBeer, setShowAddBeer] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(brewery.name);
+  const [editIg, setEditIg] = useState(brewery.instagramHandle);
+  const [editMaxQty, setEditMaxQty] = useState(brewery.maxQuantity);
+  const [editReleaseDays, setEditReleaseDays] = useState(brewery.releaseDays);
+  const [editReleaseTime, setEditReleaseTime] = useState(brewery.releaseTimeHint || '');
+  const [editKeywords, setEditKeywords] = useState(brewery.keywords.join(', '));
   const beers = beerMuleService.getBeersForBrewery(brewery.id);
+
+  const startEdit = () => {
+    setEditName(brewery.name);
+    setEditIg(brewery.instagramHandle);
+    setEditMaxQty(brewery.maxQuantity);
+    setEditReleaseDays(brewery.releaseDays);
+    setEditReleaseTime(brewery.releaseTimeHint || '');
+    setEditKeywords(brewery.keywords.join(', '));
+    setEditing(true);
+  };
+
+  const saveEdit = () => {
+    beerMuleService.updateBrewery(brewery.id, {
+      name: editName.trim(),
+      instagramHandle: editIg.trim().replace(/^@/, ''),
+      maxQuantity: editMaxQty,
+      releaseDays: editReleaseDays,
+      releaseTimeHint: editReleaseTime || undefined,
+      keywords: editKeywords.split(',').map(k => k.trim()).filter(Boolean),
+    });
+    setEditing(false);
+  };
+
+  const toggleEditDay = (d: number) =>
+    setEditReleaseDays(prev => (prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d].sort()));
 
   return (
     <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
@@ -592,6 +626,44 @@ function BreweryCard({
       {/* Expanded detail */}
       {expanded && (
         <div className="border-t border-slate-700 p-4 space-y-4">
+
+          {/* Inline edit form */}
+          {editing ? (
+            <div className="bg-slate-700/50 rounded-lg p-4 space-y-3">
+              <h5 className="text-sm text-white font-medium">Edit Brewery</h5>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Brewery Name"
+                  className="bg-slate-700 text-white rounded px-3 py-1.5 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none" />
+                <input value={editIg} onChange={e => setEditIg(e.target.value)} placeholder="Instagram Handle"
+                  className="bg-slate-700 text-white rounded px-3 py-1.5 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none" />
+                <input type="number" min={1} max={24} value={editMaxQty} onChange={e => setEditMaxQty(Number(e.target.value))} placeholder="Max Qty"
+                  className="bg-slate-700 text-white rounded px-3 py-1.5 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none" />
+                <input type="time" value={editReleaseTime} onChange={e => setEditReleaseTime(e.target.value)}
+                  className="bg-slate-700 text-white rounded px-3 py-1.5 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Release Days</label>
+                <div className="flex gap-2">
+                  {DAY_LABELS.map((label, i) => (
+                    <button key={i} onClick={() => toggleEditDay(i)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                        editReleaseDays.includes(i) ? 'bg-amber-600 text-white' : 'bg-slate-600 text-gray-400 hover:bg-slate-500'
+                      }`}>{label}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Extra Keywords (comma-separated)</label>
+                <input value={editKeywords} onChange={e => setEditKeywords(e.target.value)} placeholder="fresh cans, limited release"
+                  className="w-full bg-slate-700 text-white rounded px-3 py-1.5 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none" />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setEditing(false)} className="px-3 py-1.5 text-xs text-gray-400 hover:text-white">Cancel</button>
+                <button onClick={saveEdit} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded text-xs font-medium">Save</button>
+              </div>
+            </div>
+          ) : (
+            <>
           {/* Controls */}
           <div className="flex flex-wrap gap-2">
             <button
@@ -601,6 +673,12 @@ function BreweryCard({
               }`}
             >
               {brewery.enabled ? '✓ Enabled' : 'Disabled'}
+            </button>
+            <button
+              onClick={startEdit}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium transition-colors flex items-center gap-1"
+            >
+              Edit
             </button>
             <button
               onClick={() => beerMuleService.simulateRelease(brewery.id)}
@@ -683,6 +761,8 @@ function BreweryCard({
               </div>
             )}
           </div>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -1114,6 +1194,111 @@ function PurchasesTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Payment Methods Manager
+// ---------------------------------------------------------------------------
+function PaymentMethodsManager({ config, onSave }: { config: BeerMuleConfig; onSave: (patch: Partial<BeerMuleConfig>) => void }) {
+  const [adding, setAdding] = useState(false);
+  const [label, setLabel] = useState('');
+  const [cardNumber, setCardNumber] = useState('');
+  const [expMonth, setExpMonth] = useState('');
+  const [expYear, setExpYear] = useState('');
+  const [billingName, setBillingName] = useState('');
+  const [billingZip, setBillingZip] = useState('');
+  const methods = config.paymentMethods || [];
+
+  const addCard = () => {
+    if (!cardNumber || !expMonth || !expYear || !billingName) return;
+    const last4 = cardNumber.replace(/\s/g, '').slice(-4);
+    const brand = cardNumber.startsWith('4') ? 'Visa' : cardNumber.startsWith('5') ? 'Mastercard' : cardNumber.startsWith('3') ? 'Amex' : 'Card';
+    const newMethod: SavedPaymentMethod = {
+      id: `pm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      label: label.trim() || `${brand} ••${last4}`,
+      cardLast4: last4,
+      cardBrand: brand,
+      expMonth,
+      expYear,
+      billingName: billingName.trim(),
+      billingZip: billingZip.trim(),
+      isDefault: methods.length === 0,
+    };
+    onSave({ paymentMethods: [...methods, newMethod] });
+    setAdding(false);
+    setLabel(''); setCardNumber(''); setExpMonth(''); setExpYear(''); setBillingName(''); setBillingZip('');
+  };
+
+  const removeCard = (id: string) => {
+    const updated = methods.filter(m => m.id !== id);
+    if (updated.length > 0 && !updated.some(m => m.isDefault)) updated[0].isDefault = true;
+    onSave({ paymentMethods: updated });
+  };
+
+  const setDefault = (id: string) => {
+    onSave({ paymentMethods: methods.map(m => ({ ...m, isDefault: m.id === id })) });
+  };
+
+  return (
+    <div className="space-y-3">
+      {methods.length === 0 && !adding && (
+        <p className="text-xs text-gray-500 italic">No payment methods saved. Add a card for auto-checkout.</p>
+      )}
+      {methods.map(m => (
+        <div key={m.id} className="flex items-center justify-between bg-slate-700/50 rounded-lg px-4 py-3">
+          <div className="flex items-center gap-3">
+            <CreditCard className="w-5 h-5 text-amber-400" />
+            <div>
+              <span className="text-sm text-white font-medium">{m.cardBrand} ••••{m.cardLast4}</span>
+              {m.label && m.label !== `${m.cardBrand} ••${m.cardLast4}` && (
+                <span className="text-xs text-gray-400 ml-2">({m.label})</span>
+              )}
+              <p className="text-xs text-gray-500">{m.billingName} · Exp {m.expMonth}/{m.expYear} · ZIP {m.billingZip}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {m.isDefault ? (
+              <span className="text-xs bg-green-800 text-green-300 px-2 py-0.5 rounded">Default</span>
+            ) : (
+              <button onClick={() => setDefault(m.id)} className="text-xs text-gray-400 hover:text-white">Set default</button>
+            )}
+            <button onClick={() => removeCard(m.id)} className="text-red-500 hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
+          </div>
+        </div>
+      ))}
+
+      {adding ? (
+        <div className="bg-slate-700/50 rounded-lg p-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <input value={billingName} onChange={e => setBillingName(e.target.value)} placeholder="Name on card *"
+              className="bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none col-span-2" />
+            <input value={cardNumber} onChange={e => setCardNumber(e.target.value)} placeholder="Card number *" maxLength={19}
+              className="bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none col-span-2" />
+            <div className="flex gap-2">
+              <input value={expMonth} onChange={e => setExpMonth(e.target.value)} placeholder="MM" maxLength={2}
+                className="w-16 bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none" />
+              <input value={expYear} onChange={e => setExpYear(e.target.value)} placeholder="YY" maxLength={2}
+                className="w-16 bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none" />
+            </div>
+            <input value={billingZip} onChange={e => setBillingZip(e.target.value)} placeholder="Billing ZIP"
+              className="bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none" />
+            <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Label (optional, e.g. 'Beer card')"
+              className="bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none col-span-2" />
+          </div>
+          <p className="text-xs text-gray-500">Card details are stored locally in your browser only. Never sent to any server. Used to auto-fill checkout forms.</p>
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => setAdding(false)} className="text-xs text-gray-400 hover:text-white px-3 py-1.5">Cancel</button>
+            <button onClick={addCard} disabled={!cardNumber || !expMonth || !expYear || !billingName}
+              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-600 text-white rounded text-xs font-medium">Save Card</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setAdding(true)} className="flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300">
+          <Plus className="w-3.5 h-3.5" /> Add Payment Method
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Config Tab
 // ---------------------------------------------------------------------------
 function ConfigTab() {
@@ -1185,6 +1370,16 @@ function ConfigTab() {
           <p className="text-xs text-gray-500 mt-1 ml-7">
             When enabled, Beer Mule will automatically attempt to purchase the max allowed quantity as soon as a release is detected on Instagram.
           </p>
+        </div>
+
+        {/* Secure Payment */}
+        <div>
+          <h4 className="text-sm text-amber-400 font-semibold mb-3">Secure Payment</h4>
+          <p className="text-xs text-gray-500 mb-3">
+            Save a card for auto-checkout. Card details are stored locally in your browser only — never sent to any server.
+            Beer Mule fills these at checkout when auto-purchasing.
+          </p>
+          <PaymentMethodsManager config={config} onSave={save} />
         </div>
 
         {/* WhatsApp Alerts */}

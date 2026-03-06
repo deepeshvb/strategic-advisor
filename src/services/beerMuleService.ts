@@ -164,6 +164,18 @@ export interface MonitorEvent {
   meta?: Record<string, unknown>;
 }
 
+export interface SavedPaymentMethod {
+  id: string;
+  label: string;
+  cardLast4: string;
+  cardBrand: string;
+  expMonth: string;
+  expYear: string;
+  billingName: string;
+  billingZip: string;
+  isDefault: boolean;
+}
+
 export interface BeerMuleConfig {
   /** Global polling interval in seconds */
   pollIntervalSeconds: number;
@@ -181,6 +193,8 @@ export interface BeerMuleConfig {
   alertWhatsAppNumber: string;
   /** Beer Hunt scanning interval in seconds */
   beerHuntPollIntervalSeconds: number;
+  /** Saved payment methods for auto-checkout */
+  paymentMethods: SavedPaymentMethod[];
 }
 
 // ---------------------------------------------------------------------------
@@ -196,6 +210,7 @@ const DEFAULT_CONFIG: BeerMuleConfig = {
   useAiParsing: false,
   alertWhatsAppNumber: '',
   beerHuntPollIntervalSeconds: 300,
+  paymentMethods: [],
 };
 
 const DEFAULT_RELEASE_KEYWORDS = [
