@@ -28,6 +28,9 @@ import {
   Brewery,
   ShopUrlEntry,
   ShopUrlMode,
+  PaymentProvider,
+  PaymentProviderConfig,
+  PAYMENT_PROVIDER_PATTERNS,
   BeerHunt,
   BeerHuntSource,
   BeerSighting,
@@ -205,7 +208,9 @@ function AddBreweryForm({ onClose }: { onClose: () => void }) {
   const [shopUrls, setShopUrls] = useState<ShopUrlEntry[]>([
     { url: '', label: 'Weekday Shop', activeDays: [1, 2, 3, 4, 5] },
   ]);
-  const [shopUrlPatterns, setShopUrlPatterns] = useState('square.site, squareup.com');
+  const [paymentProvider, setPaymentProvider] = useState<PaymentProvider>('square');
+  const [providerEmail, setProviderEmail] = useState('');
+  const [autoCheckout, setAutoCheckout] = useState(true);
   const [releaseDays, setReleaseDays] = useState<number[]>([2, 5]);
   const [releaseTime, setReleaseTime] = useState('12:00');
   const [maxQty, setMaxQty] = useState(2);
@@ -237,13 +242,20 @@ function AddBreweryForm({ onClose }: { onClose: () => void }) {
   const handleSubmit = () => {
     if (!name.trim()) return;
     const validShops = shopUrls.filter(s => s.url.trim());
+    const providerConfig: PaymentProviderConfig | undefined = shopUrlMode === 'from_post' ? {
+      provider: paymentProvider,
+      urlPatterns: PAYMENT_PROVIDER_PATTERNS[paymentProvider] || [],
+      accountEmail: providerEmail.trim() || undefined,
+      autoCheckout,
+    } : undefined;
     beerMuleService.addBrewery({
       name: name.trim(),
       instagramHandle: igHandle.trim().replace(/^@/, ''),
       shopUrl: validShops[0]?.url || '',
       shopUrls: shopUrlMode === 'fixed' ? validShops : [],
       shopUrlMode,
-      shopUrlPatterns: shopUrlPatterns.split(',').map(p => p.trim()).filter(Boolean),
+      shopUrlPatterns: providerConfig?.urlPatterns || [],
+      paymentProvider: providerConfig,
       releaseDays,
       releaseTimeHint: releaseTime,
       maxQuantity: maxQty,
@@ -324,26 +336,60 @@ function AddBreweryForm({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
-      {/* URL-from-post mode: pattern hints */}
+      {/* URL-from-post mode: payment provider config */}
       {shopUrlMode === 'from_post' && (
-        <div className="bg-amber-900/10 border border-amber-700/30 rounded-lg p-4 space-y-3">
+        <div className="bg-amber-900/10 border border-amber-700/30 rounded-lg p-4 space-y-4">
           <div>
-            <label className="block text-sm text-gray-400 mb-1">URL patterns to look for in posts</label>
+            <label className="block text-sm text-gray-400 mb-2">Payment Provider</label>
+            <div className="flex gap-2 flex-wrap">
+              {(['square', 'shopify', 'woocommerce', 'bigcommerce', 'other'] as PaymentProvider[]).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setPaymentProvider(p)}
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition-colors capitalize ${
+                    paymentProvider === p ? 'bg-amber-600 text-white' : 'bg-slate-700 text-gray-400 hover:bg-slate-600'
+                  }`}
+                >
+                  {p === 'woocommerce' ? 'WooCommerce' : p === 'bigcommerce' ? 'BigCommerce' : p.charAt(0).toUpperCase() + p.slice(1)}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Beer Mule knows each provider's URL patterns (e.g. Square → <code className="text-amber-400">square.site</code>).
+              It extracts the ordering link from the Instagram post automatically.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Account Email (for auto-checkout)</label>
             <input
-              value={shopUrlPatterns}
-              onChange={e => setShopUrlPatterns(e.target.value)}
-              placeholder="e.g. square.site, squareup.com"
+              value={providerEmail}
+              onChange={e => setProviderEmail(e.target.value)}
+              placeholder="your-email@example.com"
               className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
             />
             <p className="text-xs text-gray-500 mt-1">
-              Comma-separated domain fragments. Beer Mule scans each Instagram post for URLs containing these patterns.
-              For Troon (Square): <code className="text-amber-400">square.site, squareup.com</code>
+              Your account on {paymentProvider === 'square' ? 'Square' : paymentProvider}. Used to log in and complete checkout automatically.
             </p>
           </div>
-          <p className="text-xs text-gray-400">
-            How it works: when @{igHandle || 'brewery'} posts on Instagram, Beer Mule instantly scans the post text for a URL matching these patterns,
-            then navigates directly to that URL to purchase. Each release gets its own unique link — no fixed shop URL needed.
+
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={autoCheckout} onChange={e => setAutoCheckout(e.target.checked)} className="accent-amber-500 w-4 h-4" />
+            <span className="text-sm text-white">Auto-checkout (place order immediately)</span>
+          </label>
+          <p className="text-xs text-gray-500 ml-6 -mt-2">
+            When OFF, Beer Mule detects the release and alerts you with the link — you complete checkout manually.
           </p>
+
+          <div className="bg-slate-800/50 rounded p-3">
+            <p className="text-xs text-amber-300 font-medium mb-1">How it works for {name || 'this brewery'}:</p>
+            <ol className="text-xs text-gray-400 space-y-1 list-decimal list-inside">
+              <li>@{igHandle || 'brewery'} posts on Instagram announcing a release</li>
+              <li>Beer Mule instantly scans the post for a {paymentProvider === 'square' ? 'Square' : paymentProvider} URL</li>
+              <li>Extracts the unique ordering link (different every release)</li>
+              <li>{autoCheckout ? 'Navigates to the link, adds max quantity to cart, and checks out' : 'Sends you a WhatsApp alert with the ordering link'}</li>
+            </ol>
+          </div>
         </div>
       )}
 
@@ -487,7 +533,11 @@ function BreweryCard({
               @{brewery.instagramHandle}
               {' · '}
               {brewery.shopUrlMode === 'from_post' ? (
-                <span className="text-amber-400">URL from post</span>
+                <span className="text-amber-400">
+                  {brewery.paymentProvider?.provider
+                    ? `${brewery.paymentProvider.provider.charAt(0).toUpperCase() + brewery.paymentProvider.provider.slice(1)} (from post)`
+                    : 'URL from post'}
+                </span>
               ) : (brewery.shopUrls?.length > 0 || brewery.shopUrl) ? (
                 <>
                   <Store className="inline w-3 h-3 mr-1" />

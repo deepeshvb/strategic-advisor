@@ -25,6 +25,27 @@ export interface ShopUrlEntry {
 
 export type ShopUrlMode = 'fixed' | 'from_post';
 
+export type PaymentProvider = 'square' | 'shopify' | 'woocommerce' | 'bigcommerce' | 'other';
+
+export interface PaymentProviderConfig {
+  provider: PaymentProvider;
+  /** URL patterns the provider uses (auto-populated from provider, can be customized) */
+  urlPatterns: string[];
+  /** Saved account email for auto-checkout on this provider */
+  accountEmail?: string;
+  /** Whether the agent should attempt auto-checkout or just alert */
+  autoCheckout: boolean;
+}
+
+/** Well-known URL patterns for each payment provider */
+export const PAYMENT_PROVIDER_PATTERNS: Record<PaymentProvider, string[]> = {
+  square: ['square.site', 'squareup.com', 'checkout.square.site'],
+  shopify: ['myshopify.com', '.shopify.com'],
+  woocommerce: ['woocommerce', '/product/', '/shop/'],
+  bigcommerce: ['mybigcommerce.com', 'bigcommerce.com'],
+  other: [],
+};
+
 export interface Brewery {
   id: string;
   name: string;
@@ -40,8 +61,10 @@ export interface Brewery {
    *   (e.g. Troon publishes a unique Square link in each release post)
    */
   shopUrlMode: ShopUrlMode;
-  /** URL pattern hints for extracting links from posts (e.g. 'square.site', 'squareup.com'). */
+  /** @deprecated Use paymentProvider instead for 'from_post' mode. */
   shopUrlPatterns: string[];
+  /** Payment provider config for 'from_post' mode — agent uses provider's URL patterns to find the link */
+  paymentProvider?: PaymentProviderConfig;
   /** Days the brewery typically releases (0=Sun … 6=Sat) */
   releaseDays: number[];
   /** Optional release window, e.g. "12:00" (24h). Agent polls faster inside window. */
@@ -455,7 +478,10 @@ class BeerMuleService {
           let shopUrl = post.url;
 
           if (brewery.shopUrlMode === 'from_post') {
-            const extracted = this.extractUrlsFromPost(post.text, brewery.shopUrlPatterns || []);
+            const patterns = brewery.paymentProvider
+              ? brewery.paymentProvider.urlPatterns
+              : (brewery.shopUrlPatterns || []);
+            const extracted = this.extractUrlsFromPost(post.text, patterns);
             if (extracted.length > 0) {
               shopUrl = extracted[0];
               this.addEvent(brewery.id, 'release_detected',
@@ -650,10 +676,16 @@ class BeerMuleService {
     const qty = brewery.maxQuantity || 2;
 
     if (brewery.shopUrlMode === 'from_post') {
-      const fakeSquareId = Math.random().toString(36).slice(2, 10);
-      const fakePostUrl = `https://${brewery.instagramHandle.replace(/[^a-z0-9]/g, '')}.square.site/${fakeSquareId}`;
+      const provider = brewery.paymentProvider?.provider || 'square';
+      const domain = provider === 'square' ? 'square.site'
+        : provider === 'shopify' ? 'myshopify.com'
+        : 'checkout.example.com';
+      const fakeId = Math.random().toString(36).slice(2, 10);
+      const fakePostUrl = `https://${brewery.instagramHandle.replace(/[^a-z0-9]/g, '')}.${domain}/${fakeId}`;
+      const autoCheckout = brewery.paymentProvider?.autoCheckout ? ' → auto-checkout ENABLED' : ' → alert only';
+      const acctInfo = brewery.paymentProvider?.accountEmail ? ` (account: ${brewery.paymentProvider.accountEmail})` : '';
       this.addEvent(brewery.id, 'release_detected',
-        `🚨 SIMULATED release from @${brewery.instagramHandle}: "${beerName}" — ordering URL extracted from post: ${fakePostUrl}`);
+        `🚨 SIMULATED release from @${brewery.instagramHandle}: "${beerName}" — ${provider.toUpperCase()} URL extracted: ${fakePostUrl}${autoCheckout}${acctInfo}`);
 
       const attempt: PurchaseAttempt = {
         id: `purchase-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
