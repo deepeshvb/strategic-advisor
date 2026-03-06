@@ -55,9 +55,21 @@ export default function BeerMule() {
   ];
 
   return (
-    <div className="h-full flex flex-col bg-slate-900 overflow-hidden">
+    <div className="h-full flex flex-col overflow-hidden relative">
+      {/* Pliny the Younger background */}
+      <div
+        className="absolute inset-0 z-0"
+        style={{
+          backgroundImage: 'url(/images/pliny-the-younger.jpg)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+        }}
+      />
+      <div className="absolute inset-0 z-0 bg-slate-900/85 backdrop-blur-sm" />
+
       {/* Header */}
-      <div className="flex-shrink-0 p-4 md:p-6 border-b border-slate-700 bg-slate-800">
+      <div className="relative z-10 flex-shrink-0 p-4 md:p-6 border-b border-slate-700/80 bg-slate-800/70 backdrop-blur-md">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center">
@@ -94,7 +106,7 @@ export default function BeerMule() {
       </div>
 
       {/* Sub-tabs */}
-      <div className="flex-shrink-0 border-b border-slate-700 bg-slate-800">
+      <div className="relative z-10 flex-shrink-0 border-b border-slate-700/80 bg-slate-800/70 backdrop-blur-md">
         <div className="flex overflow-x-auto">
           {tabs.map(t => {
             const Icon = t.icon;
@@ -117,7 +129,7 @@ export default function BeerMule() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 space-y-6">
+      <div className="relative z-10 flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 space-y-6">
         {tab === 'watchlist' && <WatchlistTab />}
         {tab === 'activity' && <ActivityTab />}
         {tab === 'purchases' && <PurchasesTab />}
