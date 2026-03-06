@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { MessageSquare, LayoutDashboard, Settings as SettingsIcon, Bot, LogOut, User as UserIcon } from 'lucide-react';
+import { MessageSquare, LayoutDashboard, Settings as SettingsIcon, Bot, LogOut, User as UserIcon, Beer } from 'lucide-react';
 import ChatInterface from './components/ChatInterface';
 import Dashboard from './components/Dashboard';
 import SettingsView from './components/SettingsView';
@@ -7,6 +7,7 @@ import CompanySelector from './components/CompanySelector';
 import LoginScreen from './components/LoginScreen';
 import SetupWizard from './components/SetupWizard';
 import MobileAlertBanner from './components/MobileAlertBanner';
+import BeerMule from './components/BeerMule';
 import { mockChannels, mockPriorities, mockInsights } from './services/mockData';
 import { Channel, Priority, Insight } from './types';
 import { companyService } from './services/companyService';
@@ -16,7 +17,7 @@ import { authService } from './services/authService';
 import { deviceService } from './services/deviceService';
 import { realtimeService } from './services/realtimeService';
 
-type View = 'chat' | 'dashboard' | 'settings';
+type View = 'chat' | 'dashboard' | 'beermule' | 'settings';
 
 function App() {
   const [currentView, setCurrentView] = useState<View>('chat');
@@ -78,6 +79,7 @@ function App() {
   const navItems = [
     { id: 'chat' as View, icon: MessageSquare, label: 'Chat' },
     { id: 'dashboard' as View, icon: LayoutDashboard, label: 'Dashboard' },
+    { id: 'beermule' as View, icon: Beer, label: 'Beer Mule' },
     { id: 'settings' as View, icon: SettingsIcon, label: 'Settings' },
   ];
 
@@ -231,6 +233,7 @@ function App() {
             onPriorityToggle={handlePriorityToggle}
           />
         )}
+        {currentView === 'beermule' && <BeerMule />}
         {currentView === 'settings' && <SettingsView />}
       </div>
     </div>
