@@ -23,6 +23,7 @@ import {
 import {
   beerMuleService,
   Brewery,
+  ShopUrlEntry,
   TrackedBeer,
   PurchaseAttempt,
   MonitorEvent,
@@ -191,8 +192,10 @@ const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 function AddBreweryForm({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
   const [igHandle, setIgHandle] = useState('');
-  const [shopUrl, setShopUrl] = useState('');
-  const [releaseDays, setReleaseDays] = useState<number[]>([2, 5]); // Tue, Fri default (like Troon)
+  const [shopUrls, setShopUrls] = useState<ShopUrlEntry[]>([
+    { url: '', label: 'Weekday Shop', activeDays: [1, 2, 3, 4, 5] },
+  ]);
+  const [releaseDays, setReleaseDays] = useState<number[]>([2, 5]);
   const [releaseTime, setReleaseTime] = useState('12:00');
   const [maxQty, setMaxQty] = useState(2);
   const [keywords, setKeywords] = useState('');
@@ -200,20 +203,39 @@ function AddBreweryForm({ onClose }: { onClose: () => void }) {
   const toggleDay = (d: number) =>
     setReleaseDays(prev => (prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d].sort()));
 
+  const updateShopUrl = (idx: number, patch: Partial<ShopUrlEntry>) => {
+    setShopUrls(prev => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+  };
+
+  const toggleShopDay = (idx: number, day: number) => {
+    setShopUrls(prev => prev.map((s, i) => {
+      if (i !== idx) return s;
+      const days = s.activeDays.includes(day) ? s.activeDays.filter(d => d !== day) : [...s.activeDays, day].sort();
+      return { ...s, activeDays: days };
+    }));
+  };
+
+  const addShopUrl = () => {
+    setShopUrls(prev => [...prev, { url: '', label: `Shop ${prev.length + 1}`, activeDays: [] }]);
+  };
+
+  const removeShopUrl = (idx: number) => {
+    setShopUrls(prev => prev.filter((_, i) => i !== idx));
+  };
+
   const handleSubmit = () => {
     if (!name.trim()) return;
+    const validShops = shopUrls.filter(s => s.url.trim());
     beerMuleService.addBrewery({
       name: name.trim(),
       instagramHandle: igHandle.trim().replace(/^@/, ''),
-      shopUrl: shopUrl.trim(),
+      shopUrl: validShops[0]?.url || '',
+      shopUrls: validShops,
       releaseDays,
       releaseTimeHint: releaseTime,
       maxQuantity: maxQty,
       enabled: true,
-      keywords: keywords
-        .split(',')
-        .map(k => k.trim())
-        .filter(Boolean),
+      keywords: keywords.split(',').map(k => k.trim()).filter(Boolean),
     });
     onClose();
   };
@@ -245,18 +267,6 @@ function AddBreweryForm({ onClose }: { onClose: () => void }) {
           />
         </div>
         <div>
-          <label className="block text-sm text-gray-400 mb-1">
-            <Store className="inline w-3.5 h-3.5 mr-1" />
-            Shop URL
-          </label>
-          <input
-            value={shopUrl}
-            onChange={e => setShopUrl(e.target.value)}
-            placeholder="https://troonbrewing.com/shop"
-            className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
-          />
-        </div>
-        <div>
           <label className="block text-sm text-gray-400 mb-1">Max Quantity per Order</label>
           <input
             type="number"
@@ -267,6 +277,62 @@ function AddBreweryForm({ onClose }: { onClose: () => void }) {
             className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
           />
         </div>
+      </div>
+
+      {/* Multiple Shop URLs */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="block text-sm text-gray-400">
+            <Store className="inline w-3.5 h-3.5 mr-1" />
+            Shop URLs (different sites for different days)
+          </label>
+          <button onClick={addShopUrl} className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1">
+            <Plus className="w-3 h-3" /> Add Shop URL
+          </button>
+        </div>
+        <div className="space-y-3">
+          {shopUrls.map((shop, idx) => (
+            <div key={idx} className="bg-slate-700/50 rounded-lg p-3 space-y-2">
+              <div className="flex gap-2">
+                <input
+                  value={shop.label}
+                  onChange={e => updateShopUrl(idx, { label: e.target.value })}
+                  placeholder="Label (e.g. Weekday Orders)"
+                  className="w-40 bg-slate-700 text-white rounded px-2 py-1.5 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+                />
+                <input
+                  value={shop.url}
+                  onChange={e => updateShopUrl(idx, { url: e.target.value })}
+                  placeholder="https://troonbrewing.com/weekday-shop"
+                  className="flex-1 bg-slate-700 text-white rounded px-2 py-1.5 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+                />
+                {shopUrls.length > 1 && (
+                  <button onClick={() => removeShopUrl(idx)} className="text-red-500 hover:text-red-400 px-1">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">Active days:</span>
+                {DAY_LABELS.map((label, d) => (
+                  <button
+                    key={d}
+                    onClick={() => toggleShopDay(idx, d)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                      shop.activeDays.includes(d)
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-slate-600 text-gray-400 hover:bg-slate-500'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <span className="text-[10px] text-gray-600 ml-1">(empty = every day)</span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-gray-500 mt-1">Troon example: add "Weekday Orders" (Mon–Fri) and "Weekend Orders" (Sat–Sun) with different URLs. Beer Mule picks the right shop based on the day.</p>
       </div>
 
       {/* Release days */}
@@ -289,7 +355,7 @@ function AddBreweryForm({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
-      {/* Release time hint */}
+      {/* Release time + keywords */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm text-gray-400 mb-1">Release Time (approx.)</label>
@@ -353,11 +419,11 @@ function BreweryCard({
             <p className="text-xs text-gray-400 truncate">
               <Instagram className="inline w-3 h-3 mr-1" />
               @{brewery.instagramHandle}
-              {brewery.shopUrl && (
+              {(brewery.shopUrls?.length > 0 || brewery.shopUrl) && (
                 <>
                   {' · '}
                   <Store className="inline w-3 h-3 mr-1" />
-                  Shop
+                  {brewery.shopUrls?.length > 1 ? `${brewery.shopUrls.length} shops` : 'Shop'}
                 </>
               )}
             </p>
@@ -395,16 +461,17 @@ function BreweryCard({
             >
               <Zap className="w-3 h-3" /> Simulate Release
             </button>
-            {brewery.shopUrl && (
+            {(brewery.shopUrls?.length > 0 ? brewery.shopUrls : brewery.shopUrl ? [{ url: brewery.shopUrl, label: 'Shop', activeDays: [] as number[] }] : []).map((shop, i) => (
               <a
-                href={brewery.shopUrl}
+                key={i}
+                href={shop.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-gray-300 rounded text-xs font-medium transition-colors flex items-center gap-1"
               >
-                <ExternalLink className="w-3 h-3" /> Open Shop
+                <ExternalLink className="w-3 h-3" /> {shop.label || 'Shop'}
               </a>
-            )}
+            ))}
             <button
               onClick={() => {
                 if (confirm(`Remove ${brewery.name} from watchlist?`)) {
@@ -416,6 +483,16 @@ function BreweryCard({
               <Trash2 className="w-3 h-3" /> Remove
             </button>
           </div>
+
+          {/* Active shop for today */}
+          {brewery.shopUrls?.length > 1 && (() => {
+            const active = beerMuleService.getActiveShopUrl(brewery);
+            return active ? (
+              <div className="text-xs text-amber-400 bg-amber-900/20 border border-amber-700/30 rounded px-3 py-1.5">
+                Today's active shop: <strong>{active.label}</strong> — {active.url}
+              </div>
+            ) : null;
+          })()}
 
           {/* Tracked beers */}
           <div>

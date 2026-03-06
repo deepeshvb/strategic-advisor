@@ -16,11 +16,21 @@
 // Types
 // ---------------------------------------------------------------------------
 
+export interface ShopUrlEntry {
+  url: string;
+  label: string;
+  /** Days this shop URL is active (0=Sun … 6=Sat). Empty = every day. */
+  activeDays: number[];
+}
+
 export interface Brewery {
   id: string;
   name: string;
   instagramHandle: string;
+  /** @deprecated Use shopUrls instead. Kept for backward compat. */
   shopUrl: string;
+  /** Multiple shop URLs, each with a label and active days (e.g. weekday vs weekend site). */
+  shopUrls: ShopUrlEntry[];
   /** Days the brewery typically releases (0=Sun … 6=Sat) */
   releaseDays: number[];
   /** Optional release window, e.g. "12:00" (24h). Agent polls faster inside window. */
@@ -378,9 +388,26 @@ class BeerMuleService {
    * In production this would use Puppeteer/Playwright via a backend
    * microservice to navigate the shop, add items to cart, and checkout.
    */
+  /**
+   * Resolve the correct shop URL for the current day of week.
+   * If shopUrls has entries, pick the one whose activeDays includes today (or first with empty activeDays).
+   * Falls back to the legacy shopUrl field.
+   */
+  getActiveShopUrl(brewery: Brewery): { url: string; label: string } | null {
+    const today = new Date().getDay();
+    if (brewery.shopUrls && brewery.shopUrls.length > 0) {
+      const match = brewery.shopUrls.find(s => s.activeDays.length === 0 || s.activeDays.includes(today));
+      if (match) return { url: match.url, label: match.label };
+      return { url: brewery.shopUrls[0].url, label: brewery.shopUrls[0].label };
+    }
+    if (brewery.shopUrl) return { url: brewery.shopUrl, label: 'Shop' };
+    return null;
+  }
+
   private async attemptPurchase(brewery: Brewery, postText: string, postUrl: string): Promise<void> {
     const beerName = this.extractBeerName(postText, brewery);
     const quantity = this.determineQuantity(brewery, beerName);
+    const shop = this.getActiveShopUrl(brewery);
 
     const attempt: PurchaseAttempt = {
       id: `purchase-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -394,7 +421,8 @@ class BeerMuleService {
       sourcePostUrl: postUrl,
     };
     this.purchases.push(attempt);
-    this.addEvent(brewery.id, 'purchase_started', `🛒 Auto-purchasing ${quantity}x "${beerName}" from ${brewery.name}…`);
+    const shopLabel = shop ? ` via ${shop.label} (${shop.url})` : '';
+    this.addEvent(brewery.id, 'purchase_started', `🛒 Auto-purchasing ${quantity}x "${beerName}" from ${brewery.name}${shopLabel}…`);
     this.notify();
 
     try {
@@ -448,8 +476,10 @@ class BeerMuleService {
     ];
     const beerName = sampleBeers[Math.floor(Math.random() * sampleBeers.length)];
     const qty = brewery.maxQuantity || 2;
+    const shop = this.getActiveShopUrl(brewery);
+    const shopInfo = shop ? ` | Shop: ${shop.label} (${shop.url})` : '';
 
-    this.addEvent(brewery.id, 'release_detected', `🚨 SIMULATED release from @${brewery.instagramHandle}: "${beerName}" — available now!`);
+    this.addEvent(brewery.id, 'release_detected', `🚨 SIMULATED release from @${brewery.instagramHandle}: "${beerName}" — available now!${shopInfo}`);
 
     const attempt: PurchaseAttempt = {
       id: `purchase-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
