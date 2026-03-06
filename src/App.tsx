@@ -77,7 +77,7 @@ function App() {
   };
 
   const navItems = [
-    { id: 'chat' as View, icon: MessageSquare, label: 'Chat' },
+    { id: 'chat' as View, icon: MessageSquare, label: 'Chanakya' },
     { id: 'dashboard' as View, icon: LayoutDashboard, label: 'Dashboard' },
     { id: 'beermule' as View, icon: Beer, label: 'Beer Mule' },
     { id: 'settings' as View, icon: SettingsIcon, label: 'Settings' },
