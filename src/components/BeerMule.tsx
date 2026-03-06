@@ -209,8 +209,14 @@ function AddBreweryForm({ onClose }: { onClose: () => void }) {
     { url: '', label: 'Weekday Shop', activeDays: [1, 2, 3, 4, 5] },
   ]);
   const [paymentProvider, setPaymentProvider] = useState<PaymentProvider>('square');
-  const [providerEmail, setProviderEmail] = useState('');
   const [autoCheckout, setAutoCheckout] = useState(true);
+  const [buyerName, setBuyerName] = useState('');
+  const [buyerEmail, setBuyerEmail] = useState('');
+  const [buyerPhone, setBuyerPhone] = useState('');
+  const [shipAddress, setShipAddress] = useState('');
+  const [shipCity, setShipCity] = useState('');
+  const [shipState, setShipState] = useState('');
+  const [shipZip, setShipZip] = useState('');
   const [releaseDays, setReleaseDays] = useState<number[]>([2, 5]);
   const [releaseTime, setReleaseTime] = useState('12:00');
   const [maxQty, setMaxQty] = useState(2);
@@ -245,7 +251,15 @@ function AddBreweryForm({ onClose }: { onClose: () => void }) {
     const providerConfig: PaymentProviderConfig | undefined = shopUrlMode === 'from_post' ? {
       provider: paymentProvider,
       urlPatterns: PAYMENT_PROVIDER_PATTERNS[paymentProvider] || [],
-      accountEmail: providerEmail.trim() || undefined,
+      checkoutDetails: buyerName.trim() ? {
+        fullName: buyerName.trim(),
+        email: buyerEmail.trim(),
+        phone: buyerPhone.trim() || undefined,
+        shippingAddress: shipAddress.trim() || undefined,
+        shippingCity: shipCity.trim() || undefined,
+        shippingState: shipState.trim() || undefined,
+        shippingZip: shipZip.trim() || undefined,
+      } : undefined,
       autoCheckout,
     } : undefined;
     beerMuleService.addBrewery({
@@ -360,19 +374,6 @@ function AddBreweryForm({ onClose }: { onClose: () => void }) {
             </p>
           </div>
 
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Account Email (for auto-checkout)</label>
-            <input
-              value={providerEmail}
-              onChange={e => setProviderEmail(e.target.value)}
-              placeholder="your-email@example.com"
-              className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Your account on {paymentProvider === 'square' ? 'Square' : paymentProvider}. Used to log in and complete checkout automatically.
-            </p>
-          </div>
-
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={autoCheckout} onChange={e => setAutoCheckout(e.target.checked)} className="accent-amber-500 w-4 h-4" />
             <span className="text-sm text-white">Auto-checkout (place order immediately)</span>
@@ -381,13 +382,41 @@ function AddBreweryForm({ onClose }: { onClose: () => void }) {
             When OFF, Beer Mule detects the release and alerts you with the link — you complete checkout manually.
           </p>
 
+          {autoCheckout && (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-400 font-medium">Your Checkout Details</p>
+              <p className="text-xs text-gray-500 -mt-2">Pre-filled at checkout so the order goes through instantly. No seller account needed — just your info as a buyer.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input value={buyerName} onChange={e => setBuyerName(e.target.value)} placeholder="Full Name *"
+                  className="bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none" />
+                <input value={buyerEmail} onChange={e => setBuyerEmail(e.target.value)} placeholder="Email *"
+                  className="bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none" />
+                <input value={buyerPhone} onChange={e => setBuyerPhone(e.target.value)} placeholder="Phone (optional)"
+                  className="bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none" />
+                <input value={shipAddress} onChange={e => setShipAddress(e.target.value)} placeholder="Shipping Address"
+                  className="bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none" />
+                <input value={shipCity} onChange={e => setShipCity(e.target.value)} placeholder="City"
+                  className="bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none" />
+                <div className="flex gap-2">
+                  <input value={shipState} onChange={e => setShipState(e.target.value)} placeholder="State"
+                    className="w-24 bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none" />
+                  <input value={shipZip} onChange={e => setShipZip(e.target.value)} placeholder="ZIP"
+                    className="w-28 bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none" />
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">
+                Card details are entered separately in Config → secure payment. Never stored in plain text.
+              </p>
+            </div>
+          )}
+
           <div className="bg-slate-800/50 rounded p-3">
             <p className="text-xs text-amber-300 font-medium mb-1">How it works for {name || 'this brewery'}:</p>
             <ol className="text-xs text-gray-400 space-y-1 list-decimal list-inside">
               <li>@{igHandle || 'brewery'} posts on Instagram announcing a release</li>
               <li>Beer Mule instantly scans the post for a {paymentProvider === 'square' ? 'Square' : paymentProvider} URL</li>
               <li>Extracts the unique ordering link (different every release)</li>
-              <li>{autoCheckout ? 'Navigates to the link, adds max quantity to cart, and checks out' : 'Sends you a WhatsApp alert with the ordering link'}</li>
+              <li>{autoCheckout ? 'Navigates to the link, fills your details, adds max quantity, and checks out' : 'Sends you a WhatsApp alert with the ordering link'}</li>
             </ol>
           </div>
         </div>

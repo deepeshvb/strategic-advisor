@@ -27,12 +27,22 @@ export type ShopUrlMode = 'fixed' | 'from_post';
 
 export type PaymentProvider = 'square' | 'shopify' | 'woocommerce' | 'bigcommerce' | 'other';
 
+export interface CheckoutDetails {
+  fullName: string;
+  email: string;
+  phone?: string;
+  shippingAddress?: string;
+  shippingCity?: string;
+  shippingState?: string;
+  shippingZip?: string;
+}
+
 export interface PaymentProviderConfig {
   provider: PaymentProvider;
   /** URL patterns the provider uses (auto-populated from provider, can be customized) */
   urlPatterns: string[];
-  /** Saved account email for auto-checkout on this provider */
-  accountEmail?: string;
+  /** Your checkout details — name, email, address for the purchase (no seller account needed) */
+  checkoutDetails?: CheckoutDetails;
   /** Whether the agent should attempt auto-checkout or just alert */
   autoCheckout: boolean;
 }
@@ -683,7 +693,8 @@ class BeerMuleService {
       const fakeId = Math.random().toString(36).slice(2, 10);
       const fakePostUrl = `https://${brewery.instagramHandle.replace(/[^a-z0-9]/g, '')}.${domain}/${fakeId}`;
       const autoCheckout = brewery.paymentProvider?.autoCheckout ? ' → auto-checkout ENABLED' : ' → alert only';
-      const acctInfo = brewery.paymentProvider?.accountEmail ? ` (account: ${brewery.paymentProvider.accountEmail})` : '';
+      const buyerName = brewery.paymentProvider?.checkoutDetails?.fullName;
+      const acctInfo = buyerName ? ` (buyer: ${buyerName})` : '';
       this.addEvent(brewery.id, 'release_detected',
         `🚨 SIMULATED release from @${brewery.instagramHandle}: "${beerName}" — ${provider.toUpperCase()} URL extracted: ${fakePostUrl}${autoCheckout}${acctInfo}`);
 
