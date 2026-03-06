@@ -63,6 +63,48 @@ export interface TrackedBeer {
   maxQuantity?: number;
 }
 
+// ---------------------------------------------------------------------------
+// Beer Hunt — track a beer by name at bars/restaurants in an area
+// ---------------------------------------------------------------------------
+
+export interface BeerHunt {
+  id: string;
+  beerName: string;
+  /** Optional brewery name to narrow search */
+  breweryName?: string;
+  /** Style hint (e.g. "TIPA", "Stout") for fuzzy matching */
+  style?: string;
+  /** Geographic area to search (city, neighborhood, or zip) */
+  searchArea: string;
+  /** Radius in miles from search area center */
+  radiusMiles: number;
+  /** Sources to scan for this beer */
+  sources: BeerHuntSource[];
+  /** Send WhatsApp alert when found */
+  alertWhatsApp: boolean;
+  /** WhatsApp number to alert (uses default from config if empty) */
+  whatsAppNumber: string;
+  enabled: boolean;
+  createdAt: Date;
+}
+
+export type BeerHuntSource = 'untappd' | 'beermenus' | 'instagram' | 'manual';
+
+export interface BeerSighting {
+  id: string;
+  huntId: string;
+  beerName: string;
+  venueName: string;
+  venueAddress?: string;
+  venueType: 'bar' | 'restaurant' | 'pub' | 'bottle_shop' | 'other';
+  source: BeerHuntSource;
+  detectedAt: Date;
+  alertSent: boolean;
+  alertSentAt?: Date;
+  /** URL to the source (e.g. Untappd check-in, BeerMenus page) */
+  sourceUrl?: string;
+}
+
 export type OrderStatus = 'pending' | 'purchasing' | 'success' | 'failed' | 'sold_out';
 
 export interface PurchaseAttempt {
@@ -102,6 +144,10 @@ export interface BeerMuleConfig {
   instagramProxyUrl: string;
   /** Anthropic key re-use for smart post parsing */
   useAiParsing: boolean;
+  /** Default WhatsApp number for Beer Hunt alerts (e.g. +1234567890) */
+  alertWhatsAppNumber: string;
+  /** Beer Hunt scanning interval in seconds */
+  beerHuntPollIntervalSeconds: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +161,8 @@ const DEFAULT_CONFIG: BeerMuleConfig = {
   autoPurchaseEnabled: true,
   instagramProxyUrl: '',
   useAiParsing: false,
+  alertWhatsAppNumber: '',
+  beerHuntPollIntervalSeconds: 300,
 };
 
 const DEFAULT_RELEASE_KEYWORDS = [
@@ -149,6 +197,8 @@ const STORAGE_KEYS = {
   purchases: 'beer_mule_purchases',
   events: 'beer_mule_events',
   config: 'beer_mule_config',
+  hunts: 'beer_mule_hunts',
+  sightings: 'beer_mule_sightings',
 } as const;
 
 function loadJson<T>(key: string, fallback: T): T {
@@ -177,8 +227,11 @@ class BeerMuleService {
   private beers: TrackedBeer[] = [];
   private purchases: PurchaseAttempt[] = [];
   private events: MonitorEvent[] = [];
+  private hunts: BeerHunt[] = [];
+  private sightings: BeerSighting[] = [];
   private config: BeerMuleConfig = { ...DEFAULT_CONFIG };
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private huntTimer: ReturnType<typeof setInterval> | null = null;
   private listeners: Array<() => void> = [];
 
   constructor() {
@@ -192,6 +245,8 @@ class BeerMuleService {
     this.beers = loadJson<TrackedBeer[]>(STORAGE_KEYS.beers, []);
     this.purchases = loadJson<PurchaseAttempt[]>(STORAGE_KEYS.purchases, []);
     this.events = loadJson<MonitorEvent[]>(STORAGE_KEYS.events, []);
+    this.hunts = loadJson<BeerHunt[]>(STORAGE_KEYS.hunts, []);
+    this.sightings = loadJson<BeerSighting[]>(STORAGE_KEYS.sightings, []);
     this.config = { ...DEFAULT_CONFIG, ...loadJson<Partial<BeerMuleConfig>>(STORAGE_KEYS.config, {}) };
   }
 
@@ -200,6 +255,8 @@ class BeerMuleService {
     saveJson(STORAGE_KEYS.beers, this.beers);
     saveJson(STORAGE_KEYS.purchases, this.purchases);
     saveJson(STORAGE_KEYS.events, this.events);
+    saveJson(STORAGE_KEYS.hunts, this.hunts);
+    saveJson(STORAGE_KEYS.sightings, this.sightings);
     saveJson(STORAGE_KEYS.config, this.config);
   }
 
@@ -503,6 +560,77 @@ class BeerMuleService {
     );
     if (specificBeer?.maxQuantity) return specificBeer.maxQuantity;
     return brewery.maxQuantity || 1;
+  }
+
+  // --- Beer Hunts ---
+
+  getHunts(): BeerHunt[] {
+    return [...this.hunts];
+  }
+
+  addHunt(data: Omit<BeerHunt, 'id' | 'createdAt'>): BeerHunt {
+    const hunt: BeerHunt = {
+      ...data,
+      id: `hunt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      createdAt: new Date(),
+    };
+    this.hunts.push(hunt);
+    this.addEvent('system', 'poll', `🍺 Beer Hunt added: "${hunt.beerName}" in ${hunt.searchArea} (${hunt.radiusMiles}mi radius)`);
+    this.notify();
+    return hunt;
+  }
+
+  updateHunt(id: string, patch: Partial<Omit<BeerHunt, 'id' | 'createdAt'>>): void {
+    this.hunts = this.hunts.map(h => (h.id === id ? { ...h, ...patch } : h));
+    this.notify();
+  }
+
+  removeHunt(id: string): void {
+    this.hunts = this.hunts.filter(h => h.id !== id);
+    this.sightings = this.sightings.filter(s => s.huntId !== id);
+    this.notify();
+  }
+
+  getSightings(huntId?: string): BeerSighting[] {
+    const all = [...this.sightings].sort((a, b) => b.detectedAt.getTime() - a.detectedAt.getTime());
+    return huntId ? all.filter(s => s.huntId === huntId) : all;
+  }
+
+  simulateSighting(huntId: string): void {
+    const hunt = this.hunts.find(h => h.id === huntId);
+    if (!hunt) return;
+
+    const venues = [
+      { name: 'The Craft House', type: 'bar' as const, addr: '123 Main St' },
+      { name: 'Hop Culture Taproom', type: 'pub' as const, addr: '456 Oak Ave' },
+      { name: 'Barrel & Spoke', type: 'restaurant' as const, addr: '789 Elm Blvd' },
+      { name: 'Local Bottle Shop', type: 'bottle_shop' as const, addr: '321 Pine Rd' },
+      { name: 'The Growler Fill', type: 'bar' as const, addr: '654 Maple Dr' },
+    ];
+    const venue = venues[Math.floor(Math.random() * venues.length)];
+    const sources: BeerHuntSource[] = ['untappd', 'beermenus', 'instagram'];
+    const source = sources[Math.floor(Math.random() * sources.length)];
+
+    const sighting: BeerSighting = {
+      id: `sight-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      huntId: hunt.id,
+      beerName: hunt.beerName,
+      venueName: venue.name,
+      venueAddress: `${venue.addr}, ${hunt.searchArea}`,
+      venueType: venue.type,
+      source,
+      detectedAt: new Date(),
+      alertSent: hunt.alertWhatsApp,
+      alertSentAt: hunt.alertWhatsApp ? new Date() : undefined,
+    };
+    this.sightings.push(sighting);
+
+    const alertNote = hunt.alertWhatsApp
+      ? ` — WhatsApp alert sent to ${hunt.whatsAppNumber || this.config.alertWhatsAppNumber || 'default number'}`
+      : '';
+    this.addEvent('system', 'release_detected',
+      `🍺 SIMULATED sighting: "${hunt.beerName}" spotted at ${venue.name} (${venue.type}) in ${hunt.searchArea} via ${source}${alertNote}`);
+    this.notify();
   }
 
   // --- Simulate a release (for demo/testing) ---

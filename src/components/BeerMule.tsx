@@ -19,12 +19,18 @@ import {
   ExternalLink,
   FlaskConical,
   Store,
+  Search,
+  MapPin,
+  MessageCircle,
 } from 'lucide-react';
 import {
   beerMuleService,
   Brewery,
   ShopUrlEntry,
   ShopUrlMode,
+  BeerHunt,
+  BeerHuntSource,
+  BeerSighting,
   TrackedBeer,
   PurchaseAttempt,
   MonitorEvent,
@@ -34,7 +40,7 @@ import {
 // ---------------------------------------------------------------------------
 // Sub-tab type
 // ---------------------------------------------------------------------------
-type BeerMuleTab = 'watchlist' | 'activity' | 'purchases' | 'settings';
+type BeerMuleTab = 'watchlist' | 'beerhunts' | 'activity' | 'purchases' | 'settings';
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -50,7 +56,8 @@ export default function BeerMule() {
   const monitoring = beerMuleService.isMonitoring();
 
   const tabs: { id: BeerMuleTab; label: string; icon: typeof Beer }[] = [
-    { id: 'watchlist', label: 'Watchlist', icon: Beer },
+    { id: 'watchlist', label: 'Breweries', icon: Beer },
+    { id: 'beerhunts', label: 'Beer Hunts', icon: Search },
     { id: 'activity', label: 'Activity', icon: Activity },
     { id: 'purchases', label: 'Purchases', icon: ShoppingCart },
     { id: 'settings', label: 'Config', icon: SettingsIcon },
@@ -133,6 +140,7 @@ export default function BeerMule() {
       {/* Content */}
       <div className="relative z-10 flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 space-y-6">
         {tab === 'watchlist' && <WatchlistTab />}
+        {tab === 'beerhunts' && <BeerHuntsTab />}
         {tab === 'activity' && <ActivityTab />}
         {tab === 'purchases' && <PurchasesTab />}
         {tab === 'settings' && <ConfigTab />}
@@ -663,6 +671,267 @@ function AddBeerForm({ breweryId, onClose }: { breweryId: string; onClose: () =>
 }
 
 // ---------------------------------------------------------------------------
+// Beer Hunts Tab — track beers by name at bars/restaurants in your area
+// ---------------------------------------------------------------------------
+function BeerHuntsTab() {
+  const [showAddForm, setShowAddForm] = useState(false);
+  const hunts = beerMuleService.getHunts();
+  const sightings = beerMuleService.getSightings();
+
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-white">Beer Hunts</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Track specific beers at bars & restaurants near you. Get WhatsApp alerts when spotted.</p>
+        </div>
+        <button
+          onClick={() => setShowAddForm(!showAddForm)}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium transition-colors"
+        >
+          <Plus className="w-4 h-4" /> Add Beer Hunt
+        </button>
+      </div>
+
+      {showAddForm && <AddBeerHuntForm onClose={() => setShowAddForm(false)} />}
+
+      {hunts.length === 0 ? (
+        <div className="text-center py-16 text-gray-500">
+          <Search className="w-12 h-12 mx-auto mb-3 opacity-40" />
+          <p className="text-lg font-medium text-gray-400">No beer hunts yet</p>
+          <p className="text-sm mt-1">Add a beer to track at local bars, pubs, and restaurants.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {hunts.map(hunt => (
+            <div key={hunt.id} className="bg-slate-800 rounded-lg border border-slate-700 p-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h4 className="text-white font-medium flex items-center gap-2">
+                    <Search className="w-4 h-4 text-amber-400" />
+                    {hunt.beerName}
+                    {hunt.breweryName && <span className="text-xs text-gray-500">by {hunt.breweryName}</span>}
+                  </h4>
+                  <p className="text-xs text-gray-400 mt-1">
+                    <MapPin className="inline w-3 h-3 mr-1" />
+                    {hunt.searchArea} ({hunt.radiusMiles}mi)
+                    {hunt.alertWhatsApp && (
+                      <>
+                        {' · '}
+                        <MessageCircle className="inline w-3 h-3 mr-1 text-green-400" />
+                        <span className="text-green-400">WhatsApp alerts ON</span>
+                      </>
+                    )}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Sources: {hunt.sources.join(', ')} · {hunt.style ? `Style: ${hunt.style}` : ''}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => beerMuleService.updateHunt(hunt.id, { enabled: !hunt.enabled })}
+                    className={`px-2 py-1 rounded text-xs font-medium ${
+                      hunt.enabled ? 'bg-green-600 text-white' : 'bg-slate-700 text-gray-400'
+                    }`}
+                  >
+                    {hunt.enabled ? '✓ Active' : 'Paused'}
+                  </button>
+                  <button
+                    onClick={() => beerMuleService.simulateSighting(hunt.id)}
+                    className="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs font-medium flex items-center gap-1"
+                  >
+                    <Zap className="w-3 h-3" /> Simulate
+                  </button>
+                  <button
+                    onClick={() => { if (confirm(`Remove hunt for "${hunt.beerName}"?`)) beerMuleService.removeHunt(hunt.id); }}
+                    className="px-2 py-1 bg-red-900/40 hover:bg-red-800/60 text-red-400 rounded text-xs font-medium"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Sightings for this hunt */}
+              {(() => {
+                const huntSightings = sightings.filter(s => s.huntId === hunt.id);
+                if (huntSightings.length === 0) return (
+                  <p className="text-xs text-gray-600 mt-3 italic">No sightings yet. Click "Simulate" to test.</p>
+                );
+                return (
+                  <div className="mt-3 space-y-2">
+                    <h5 className="text-xs text-gray-400 font-medium">Recent Sightings</h5>
+                    {huntSightings.slice(0, 5).map(s => (
+                      <div key={s.id} className="flex items-center justify-between bg-slate-700/50 rounded px-3 py-2">
+                        <div>
+                          <span className="text-sm text-white">{s.venueName}</span>
+                          <span className="text-xs text-gray-500 ml-2">({s.venueType})</span>
+                          {s.venueAddress && <p className="text-xs text-gray-500">{s.venueAddress}</p>}
+                        </div>
+                        <div className="flex items-center gap-2 text-xs flex-shrink-0">
+                          <span className="text-gray-500">{s.source}</span>
+                          {s.alertSent && <span className="text-green-400">✓ alerted</span>}
+                          <span className="text-gray-600">{s.detectedAt.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Add Beer Hunt Form
+// ---------------------------------------------------------------------------
+function AddBeerHuntForm({ onClose }: { onClose: () => void }) {
+  const [beerName, setBeerName] = useState('');
+  const [breweryName, setBreweryName] = useState('');
+  const [style, setStyle] = useState('');
+  const [searchArea, setSearchArea] = useState('');
+  const [radiusMiles, setRadiusMiles] = useState(15);
+  const [sources, setSources] = useState<BeerHuntSource[]>(['untappd', 'beermenus', 'instagram']);
+  const [alertWhatsApp, setAlertWhatsApp] = useState(true);
+  const [whatsAppNumber, setWhatsAppNumber] = useState('');
+
+  const toggleSource = (src: BeerHuntSource) => {
+    setSources(prev => prev.includes(src) ? prev.filter(s => s !== src) : [...prev, src]);
+  };
+
+  const handleSubmit = () => {
+    if (!beerName.trim() || !searchArea.trim()) return;
+    beerMuleService.addHunt({
+      beerName: beerName.trim(),
+      breweryName: breweryName.trim() || undefined,
+      style: style.trim() || undefined,
+      searchArea: searchArea.trim(),
+      radiusMiles,
+      sources,
+      alertWhatsApp,
+      whatsAppNumber: whatsAppNumber.trim(),
+      enabled: true,
+    });
+    onClose();
+  };
+
+  return (
+    <div className="bg-slate-800 rounded-lg border border-slate-700 p-5 space-y-4">
+      <h4 className="text-white font-semibold">Track a Beer at Local Venues</h4>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Beer Name *</label>
+          <input
+            value={beerName}
+            onChange={e => setBeerName(e.target.value)}
+            placeholder="e.g. Pliny the Younger"
+            className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Brewery (optional)</label>
+          <input
+            value={breweryName}
+            onChange={e => setBreweryName(e.target.value)}
+            placeholder="e.g. Russian River Brewing"
+            className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Style (optional)</label>
+          <input
+            value={style}
+            onChange={e => setStyle(e.target.value)}
+            placeholder="e.g. Triple IPA, Stout"
+            className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">
+            <MapPin className="inline w-3.5 h-3.5 mr-1" />
+            Search Area *
+          </label>
+          <input
+            value={searchArea}
+            onChange={e => setSearchArea(e.target.value)}
+            placeholder="e.g. Hoboken NJ, Manhattan, 07030"
+            className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Radius (miles)</label>
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={radiusMiles}
+            onChange={e => setRadiusMiles(Number(e.target.value))}
+            className="w-full bg-slate-700 text-white rounded-lg px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+          />
+        </div>
+      </div>
+
+      {/* Sources */}
+      <div>
+        <label className="block text-sm text-gray-400 mb-2">Scan Sources</label>
+        <div className="flex gap-2 flex-wrap">
+          {(['untappd', 'beermenus', 'instagram', 'manual'] as BeerHuntSource[]).map(src => (
+            <button
+              key={src}
+              onClick={() => toggleSource(src)}
+              className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+                sources.includes(src) ? 'bg-amber-600 text-white' : 'bg-slate-700 text-gray-400 hover:bg-slate-600'
+              }`}
+            >
+              {src === 'untappd' ? 'Untappd' : src === 'beermenus' ? 'BeerMenus' : src === 'instagram' ? 'Instagram' : 'Manual'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* WhatsApp Alert */}
+      <div className="bg-green-900/10 border border-green-700/30 rounded-lg p-3 space-y-2">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={alertWhatsApp} onChange={e => setAlertWhatsApp(e.target.checked)} className="accent-green-500 w-4 h-4" />
+          <span className="text-sm text-white flex items-center gap-1">
+            <MessageCircle className="w-4 h-4 text-green-400" />
+            Send WhatsApp alert when beer is spotted
+          </span>
+        </label>
+        {alertWhatsApp && (
+          <div>
+            <input
+              value={whatsAppNumber}
+              onChange={e => setWhatsAppNumber(e.target.value)}
+              placeholder="WhatsApp number (leave empty to use default from Config)"
+              className="w-full bg-slate-700 text-white rounded px-3 py-1.5 text-sm border border-slate-600 focus:border-green-500 focus:outline-none"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Alert message includes: beer name, venue name & type, address, and source link.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="flex justify-end gap-3 pt-2">
+        <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">Cancel</button>
+        <button
+          onClick={handleSubmit}
+          disabled={!beerName.trim() || !searchArea.trim()}
+          className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-600 text-white rounded-lg text-sm font-medium transition-colors"
+        >
+          Start Hunting
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Activity Tab
 // ---------------------------------------------------------------------------
 function ActivityTab() {
@@ -836,6 +1105,37 @@ function ConfigTab() {
           </label>
           <p className="text-xs text-gray-500 mt-1 ml-7">
             When enabled, Beer Mule will automatically attempt to purchase the max allowed quantity as soon as a release is detected on Instagram.
+          </p>
+        </div>
+
+        {/* WhatsApp Alerts */}
+        <div>
+          <h4 className="text-sm text-amber-400 font-semibold mb-3">WhatsApp Alerts (Beer Hunts)</h4>
+          <label className="block text-xs text-gray-400 mb-1">Default WhatsApp Number for Alerts</label>
+          <input
+            value={config.alertWhatsAppNumber}
+            onChange={e => save({ alertWhatsAppNumber: e.target.value })}
+            placeholder="+1234567890"
+            className="w-full bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            When a Beer Hunt spots a beer at a venue, an alert is sent to this WhatsApp number via your Twilio integration.
+          </p>
+        </div>
+
+        <div>
+          <h4 className="text-sm text-amber-400 font-semibold mb-3">Beer Hunt Scanning</h4>
+          <label className="block text-xs text-gray-400 mb-1">Scan Interval (seconds)</label>
+          <input
+            type="number"
+            min={60}
+            max={3600}
+            value={config.beerHuntPollIntervalSeconds}
+            onChange={e => save({ beerHuntPollIntervalSeconds: Number(e.target.value) })}
+            className="w-full bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none max-w-xs"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            How often Beer Mule checks Untappd, BeerMenus, and Instagram for your tracked beers at local venues.
           </p>
         </div>
 
