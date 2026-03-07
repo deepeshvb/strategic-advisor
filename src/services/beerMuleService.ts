@@ -526,7 +526,8 @@ class BeerMuleService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: [brewery.instagramHandle],
+          directUrls: [`https://www.instagram.com/${brewery.instagramHandle}/`],
+          resultsType: 'posts',
           resultsLimit: 5,
         }),
       });
@@ -760,7 +761,8 @@ class BeerMuleService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: [brewery.instagramHandle],
+          directUrls: [`https://www.instagram.com/${brewery.instagramHandle}/`],
+          resultsType: 'posts',
           resultsLimit: 10,
         }),
       });
