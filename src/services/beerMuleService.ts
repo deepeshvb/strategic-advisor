@@ -506,7 +506,7 @@ class BeerMuleService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: brewery.instagramHandle,
+          username: [brewery.instagramHandle],
           resultsLimit: 5,
         }),
       });
