@@ -475,10 +475,26 @@ class BeerMuleService {
    * optionally filtered by the brewery's shopUrlPatterns.
    */
   extractUrlsFromPost(text: string, patterns: string[]): string[] {
-    const urlRegex = /https?:\/\/[^\s,)"'<>]+/gi;
-    const allUrls = text.match(urlRegex) || [];
-    if (patterns.length === 0) return allUrls;
-    return allUrls.filter(url => {
+    const fullUrlRegex = /https?:\/\/[^\s,)"'<>]+/gi;
+    const fullUrls = text.match(fullUrlRegex) || [];
+
+    const bareDomainUrls: string[] = [];
+    for (const pattern of patterns) {
+      const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const bareRegex = new RegExp(`[a-z0-9][a-z0-9\\-]*\\.${escaped}[^\\s,)"'<>]*`, 'gi');
+      const matches = text.match(bareRegex) || [];
+      for (const m of matches) {
+        if (!m.startsWith('http')) {
+          bareDomainUrls.push(`https://${m}`);
+        }
+      }
+    }
+
+    const allUrls = [...fullUrls, ...bareDomainUrls];
+    const unique = [...new Set(allUrls)];
+
+    if (patterns.length === 0) return unique;
+    return unique.filter(url => {
       const lower = url.toLowerCase();
       return patterns.some(p => lower.includes(p.toLowerCase()));
     });
