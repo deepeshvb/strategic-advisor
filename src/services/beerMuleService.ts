@@ -212,7 +212,7 @@ const DEFAULT_CONFIG: BeerMuleConfig = {
   autoPurchaseEnabled: true,
   instagramProxyUrl: '',
   apifyApiToken: '',
-  apifyActorId: 'singhera07/instagram-scraper',
+  apifyActorId: 'apify/instagram-profile-scraper',
   useAiParsing: false,
   alertWhatsAppNumber: '',
   beerHuntPollIntervalSeconds: 300,
@@ -526,9 +526,8 @@ class BeerMuleService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'posts',
-          username: brewery.instagramHandle,
-          limit: 5,
+          usernames: [brewery.instagramHandle],
+          resultsLimit: 5,
         }),
       });
 
@@ -773,9 +772,8 @@ class BeerMuleService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'posts',
-          username: brewery.instagramHandle,
-          limit: 10,
+          usernames: [brewery.instagramHandle],
+          resultsLimit: 10,
         }),
       });
 
