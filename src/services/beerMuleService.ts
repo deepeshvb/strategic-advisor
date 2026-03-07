@@ -212,7 +212,7 @@ const DEFAULT_CONFIG: BeerMuleConfig = {
   autoPurchaseEnabled: true,
   instagramProxyUrl: '',
   apifyApiToken: '',
-  apifyActorId: 'apify/instagram-post-scraper',
+  apifyActorId: 'singhera07/instagram-scraper',
   useAiParsing: false,
   alertWhatsAppNumber: '',
   beerHuntPollIntervalSeconds: 300,
@@ -526,8 +526,9 @@ class BeerMuleService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: [brewery.instagramHandle],
-          resultsLimit: 5,
+          action: 'posts',
+          username: brewery.instagramHandle,
+          limit: 5,
         }),
       });
 
@@ -539,9 +540,13 @@ class BeerMuleService {
       const rawResults: Array<Record<string, unknown>> = await res.json();
       const posts: Array<Record<string, unknown>> = [];
       for (const r of rawResults) {
-        if (Array.isArray(r.latestPosts)) {
+        if (Array.isArray(r.latestPosts) && (r.latestPosts as unknown[]).length > 0) {
           posts.push(...(r.latestPosts as Array<Record<string, unknown>>));
-        } else {
+        } else if (Array.isArray(r.posts) && (r.posts as unknown[]).length > 0) {
+          posts.push(...(r.posts as Array<Record<string, unknown>>));
+        } else if (Array.isArray(r.items) && (r.items as unknown[]).length > 0) {
+          posts.push(...(r.items as Array<Record<string, unknown>>));
+        } else if (r.caption || r.text) {
           posts.push(r);
         }
       }
@@ -768,8 +773,9 @@ class BeerMuleService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: [brewery.instagramHandle],
-          resultsLimit: 10,
+          action: 'posts',
+          username: brewery.instagramHandle,
+          limit: 10,
         }),
       });
 

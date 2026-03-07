@@ -1442,11 +1442,11 @@ function ConfigTab() {
               <input
                 value={config.apifyActorId}
                 onChange={e => save({ apifyActorId: e.target.value })}
-                placeholder="apify/instagram-post-scraper"
+                placeholder="singhera07/instagram-scraper"
                 className="w-full bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
               />
               <p className="text-xs text-gray-500 mt-1">
-                Default: <code className="text-amber-400">apify/instagram-post-scraper</code>. Change only if using a different scraper actor.
+                Default: <code className="text-amber-400">singhera07/instagram-scraper</code>. Change only if using a different scraper actor.
               </p>
             </div>
           </div>
