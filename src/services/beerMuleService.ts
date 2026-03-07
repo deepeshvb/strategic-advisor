@@ -784,12 +784,25 @@ class BeerMuleService {
         throw new Error(`Apify HTTP ${res.status}: ${errText.substring(0, 200)}`);
       }
 
-      const rawResults: Array<Record<string, unknown>> = await res.json();
+      const rawText = await res.text();
+      this.addEvent(brewery.id, 'poll', `🧪 RAW RESPONSE (${rawText.length} chars): ${rawText.substring(0, 600)}`);
+
+      let rawResults: Array<Record<string, unknown>>;
+      try {
+        const parsed = JSON.parse(rawText);
+        rawResults = Array.isArray(parsed) ? parsed : [parsed];
+      } catch {
+        throw new Error(`Invalid JSON from Apify: ${rawText.substring(0, 200)}`);
+      }
+
+      this.addEvent(brewery.id, 'poll', `🧪 Parsed ${rawResults.length} top-level items`);
+
       const posts: Array<Record<string, unknown>> = [];
       for (const r of rawResults) {
-        const arrayFields = Object.keys(r).filter(k => Array.isArray(r[k]));
+        const keys = Object.keys(r);
+        const arrayFields = keys.filter(k => Array.isArray(r[k]));
         const arrayLengths = arrayFields.map(k => `${k}(${(r[k] as unknown[]).length})`).join(', ');
-        this.addEvent(brewery.id, 'poll', `🧪 Profile arrays: ${arrayLengths || 'NONE'} | All keys: ${Object.keys(r).join(', ')}`);
+        this.addEvent(brewery.id, 'poll', `🧪 Item keys: ${keys.join(', ')} | Arrays: ${arrayLengths || 'NONE'}`);
 
         if (Array.isArray(r.latestPosts) && (r.latestPosts as unknown[]).length > 0) {
           posts.push(...(r.latestPosts as Array<Record<string, unknown>>));
@@ -799,7 +812,9 @@ class BeerMuleService {
           posts.push(...(r.items as Array<Record<string, unknown>>));
         } else if (Array.isArray(r.media) && (r.media as unknown[]).length > 0) {
           posts.push(...(r.media as Array<Record<string, unknown>>));
-        } else if (r.caption || r.text) {
+        } else if (Array.isArray(r.data) && (r.data as unknown[]).length > 0) {
+          posts.push(...(r.data as Array<Record<string, unknown>>));
+        } else if (r.caption || r.text || r.node) {
           posts.push(r);
         }
       }
