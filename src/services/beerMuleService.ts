@@ -456,18 +456,75 @@ class BeerMuleService {
   private async pollAllBreweries(): Promise<void> {
     const today = new Date().getDay();
     const active = this.breweries.filter(b => b.enabled);
+
+    await this.pollWebhookQueue(active);
+
     for (const brewery of active) {
       if (brewery.releaseDays.length > 0 && !brewery.releaseDays.includes(today)) {
         continue;
       }
-      try {
-        await this.pollBrewery(brewery);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        this.addEvent(brewery.id, 'error', `Poll error for ${brewery.name}: ${msg}`);
+      if (this.config.apifyApiToken) {
+        try {
+          await this.pollBrewery(brewery);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.addEvent(brewery.id, 'error', `Poll error for ${brewery.name}: ${msg}`);
+        }
       }
     }
     this.notify();
+  }
+
+  /**
+   * Poll the backend webhook queue for posts pushed by IFTTT/Zapier.
+   * This is the primary monitoring method — instant, no scraping needed.
+   */
+  private async pollWebhookQueue(activeBreweries: Brewery[]): Promise<void> {
+    try {
+      const res = await fetch('/api/beermule/webhook/posts');
+      if (!res.ok) return;
+      const { posts } = await res.json() as { posts: Array<{ username?: string; caption?: string; url?: string }> };
+      if (!posts || posts.length === 0) return;
+
+      for (const post of posts) {
+        const handle = (post.username || '').toLowerCase().replace(/^@/, '');
+        const brewery = activeBreweries.find(b => b.instagramHandle.toLowerCase() === handle);
+        if (!brewery) {
+          this.addEvent('system', 'poll', `Webhook post from @${handle} — no matching brewery in watchlist`);
+          continue;
+        }
+
+        const caption = post.caption || '';
+        const postUrl = post.url || '';
+        this.addEvent(brewery.id, 'release_detected',
+          `🚨 WEBHOOK: New post from @${handle}: "${caption.substring(0, 120)}..."`,
+          { postUrl });
+
+        if (brewery.shopUrlMode === 'from_post') {
+          const patterns = brewery.paymentProvider
+            ? brewery.paymentProvider.urlPatterns
+            : (brewery.shopUrlPatterns || []);
+          const extracted = this.extractUrlsFromPost(caption, patterns);
+          if (extracted.length > 0) {
+            this.addEvent(brewery.id, 'release_detected',
+              `🚨 WEBHOOK: Ordering URL found → ${extracted[0]}`,
+              { postUrl, shopUrl: extracted[0] });
+            if (this.config.autoPurchaseEnabled) {
+              await this.attemptPurchase(brewery, caption, extracted[0]);
+            }
+          } else {
+            this.addEvent(brewery.id, 'release_detected',
+              `🚨 WEBHOOK: Post received but no ordering URL (${patterns.join('/')}) found in caption.`);
+          }
+        } else {
+          if (this.config.autoPurchaseEnabled) {
+            await this.attemptPurchase(brewery, caption, postUrl);
+          }
+        }
+      }
+    } catch {
+      // Webhook endpoint not available — that's fine, Apify is the fallback
+    }
   }
 
   /**

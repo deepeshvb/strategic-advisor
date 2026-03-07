@@ -152,7 +152,72 @@ app.get('/api/voice/health', (req, res) => {
       'GET  /api/voice/status',
       'POST /api/voice/query',
       'GET  /api/voice/briefing/:timeOfDay',
+      'POST /api/beermule/webhook',
+      'GET  /api/beermule/webhook/posts',
+      'GET  /api/beermule/webhook/health',
     ],
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Beer Mule Webhook — receives Instagram post notifications from IFTTT/Zapier
+// ---------------------------------------------------------------------------
+
+interface WebhookPost {
+  username?: string;
+  caption?: string;
+  text?: string;
+  url?: string;
+  imageUrl?: string;
+  timestamp?: string;
+}
+
+const beerMuleWebhookQueue: WebhookPost[] = [];
+
+/**
+ * POST /api/beermule/webhook
+ * Called by IFTTT/Zapier when a monitored Instagram account posts.
+ * Body: { username, caption, url, imageUrl, timestamp }
+ */
+app.post('/api/beermule/webhook', (req, res) => {
+  const post: WebhookPost = {
+    username: req.body.username || req.body.Username || '',
+    caption: req.body.caption || req.body.Caption || req.body.text || req.body.Text || req.body.content || '',
+    url: req.body.url || req.body.Url || req.body.postUrl || req.body.PostUrl || req.body.link || '',
+    imageUrl: req.body.imageUrl || req.body.ImageUrl || req.body.image || '',
+    timestamp: req.body.timestamp || req.body.Timestamp || req.body.created || new Date().toISOString(),
+  };
+
+  console.log(`🍺 Beer Mule webhook received: @${post.username} — "${(post.caption || '').substring(0, 80)}..."`);
+  beerMuleWebhookQueue.push(post);
+
+  if (beerMuleWebhookQueue.length > 100) {
+    beerMuleWebhookQueue.splice(0, beerMuleWebhookQueue.length - 100);
+  }
+
+  res.json({ success: true, message: 'Post received by Beer Mule', queued: beerMuleWebhookQueue.length });
+});
+
+/**
+ * GET /api/beermule/webhook/posts
+ * Frontend polls this to get new posts from the webhook queue.
+ * Returns and clears the queue.
+ */
+app.get('/api/beermule/webhook/posts', (req, res) => {
+  const posts = [...beerMuleWebhookQueue];
+  beerMuleWebhookQueue.length = 0;
+  res.json({ posts, count: posts.length });
+});
+
+/**
+ * GET /api/beermule/webhook/health
+ * Health check for the webhook endpoint.
+ */
+app.get('/api/beermule/webhook/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    queueLength: beerMuleWebhookQueue.length,
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -169,8 +234,14 @@ app.listen(PORT, () => {
   console.log(`   GET  http://localhost:${PORT}/api/voice/status`);
   console.log(`   POST http://localhost:${PORT}/api/voice/query`);
   console.log('');
+  console.log('🍺 Beer Mule Webhook:');
+  console.log(`   POST http://localhost:${PORT}/api/beermule/webhook`);
+  console.log(`   GET  http://localhost:${PORT}/api/beermule/webhook/posts`);
+  console.log(`   GET  http://localhost:${PORT}/api/beermule/webhook/health`);
+  console.log('');
   console.log('🎤 Test with curl:');
   console.log(`   curl http://localhost:${PORT}/api/voice/critical`);
+  console.log(`   curl -X POST http://localhost:${PORT}/api/beermule/webhook -H "Content-Type: application/json" -d "{\\"username\\":\\"troonbrewing\\",\\"caption\\":\\"Fresh cans! Order: weekendsuds.square.site\\"}"`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('');
 });
