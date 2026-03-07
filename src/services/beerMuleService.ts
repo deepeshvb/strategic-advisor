@@ -496,10 +496,11 @@ class BeerMuleService {
       return;
     }
 
-    const actorId = this.config.apifyActorId || 'apify/instagram-post-scraper';
+    const rawActorId = this.config.apifyActorId || 'apify/instagram-post-scraper';
+    const actorId = rawActorId.replace('/', '~');
 
     try {
-      const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${this.config.apifyApiToken}&format=json&limit=5`;
+      const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${encodeURIComponent(this.config.apifyApiToken)}&format=json`;
 
       const res = await fetch(apiUrl, {
         method: 'POST',
