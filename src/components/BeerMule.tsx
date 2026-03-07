@@ -681,6 +681,12 @@ function BreweryCard({
               Edit
             </button>
             <button
+              onClick={() => beerMuleService.testRealPosts(brewery.id)}
+              className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded text-xs font-medium transition-colors flex items-center gap-1"
+            >
+              <Search className="w-3 h-3" /> Test Real Posts
+            </button>
+            <button
               onClick={() => beerMuleService.simulateRelease(brewery.id)}
               className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs font-medium transition-colors flex items-center gap-1"
             >

@@ -720,6 +720,78 @@ class BeerMuleService {
     this.notify();
   }
 
+  // --- Test with real posts (fetch live, scan for URLs, don't buy) ---
+
+  async testRealPosts(breweryId: string): Promise<void> {
+    const brewery = this.breweries.find(b => b.id === breweryId);
+    if (!brewery) return;
+
+    if (!this.config.apifyApiToken) {
+      this.addEvent(brewery.id, 'error', 'Cannot test — add your Apify API token in Config first.');
+      this.notify();
+      return;
+    }
+
+    const rawActorId = this.config.apifyActorId || 'apify/instagram-post-scraper';
+    const actorId = rawActorId.replace('/', '~');
+
+    try {
+      this.addEvent(brewery.id, 'poll', `🧪 TEST: Fetching real posts from @${brewery.instagramHandle}...`);
+      this.notify();
+
+      const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${encodeURIComponent(this.config.apifyApiToken)}&format=json`;
+      const res = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: [brewery.instagramHandle],
+          resultsLimit: 10,
+        }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`Apify HTTP ${res.status}: ${errText.substring(0, 200)}`);
+      }
+
+      const results: Array<Record<string, unknown>> = await res.json();
+      this.addEvent(brewery.id, 'poll', `🧪 TEST: Got ${results.length} real posts from @${brewery.instagramHandle}`);
+
+      const patterns = brewery.paymentProvider
+        ? brewery.paymentProvider.urlPatterns
+        : (brewery.shopUrlPatterns || []);
+
+      let foundLinks = 0;
+      for (const item of results) {
+        const caption = String(item.caption || item.text || item.alt || '');
+        if (!caption) continue;
+
+        const urls = this.extractUrlsFromPost(caption, patterns);
+        const postUrl = String(item.url || item.displayUrl || `https://instagram.com/p/${item.shortCode || item.id}`);
+
+        if (urls.length > 0) {
+          foundLinks++;
+          this.addEvent(brewery.id, 'release_detected',
+            `🧪 TEST: Found ordering URL in post → ${urls[0]}  |  Caption: "${caption.substring(0, 100)}..."`,
+            { postUrl, shopUrl: urls[0], testOnly: true });
+        } else {
+          this.addEvent(brewery.id, 'poll',
+            `🧪 TEST: Post has no ${patterns.length > 0 ? patterns.join('/') : 'ordering'} URL. Caption: "${caption.substring(0, 80)}..."`,
+            { postUrl });
+        }
+      }
+
+      this.addEvent(brewery.id, 'poll',
+        `🧪 TEST COMPLETE: Scanned ${results.length} posts, found ${foundLinks} with ordering URLs. ${foundLinks > 0 ? 'Click the links in Activity to verify they work!' : 'No ordering URLs found in recent posts (Troon may not have a current release).'}`);
+
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.addEvent(brewery.id, 'error', `🧪 TEST failed: ${msg}`);
+    }
+
+    this.notify();
+  }
+
   // --- Simulate a release (for demo/testing) ---
 
   simulateRelease(breweryId: string): void {
