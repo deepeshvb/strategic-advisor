@@ -781,13 +781,23 @@ class BeerMuleService {
       const rawResults: Array<Record<string, unknown>> = await res.json();
       const posts: Array<Record<string, unknown>> = [];
       for (const r of rawResults) {
-        if (Array.isArray(r.latestPosts)) {
+        const arrayFields = Object.keys(r).filter(k => Array.isArray(r[k]));
+        const arrayLengths = arrayFields.map(k => `${k}(${(r[k] as unknown[]).length})`).join(', ');
+        this.addEvent(brewery.id, 'poll', `🧪 Profile arrays: ${arrayLengths || 'NONE'} | All keys: ${Object.keys(r).join(', ')}`);
+
+        if (Array.isArray(r.latestPosts) && (r.latestPosts as unknown[]).length > 0) {
           posts.push(...(r.latestPosts as Array<Record<string, unknown>>));
-        } else {
+        } else if (Array.isArray(r.posts) && (r.posts as unknown[]).length > 0) {
+          posts.push(...(r.posts as Array<Record<string, unknown>>));
+        } else if (Array.isArray(r.items) && (r.items as unknown[]).length > 0) {
+          posts.push(...(r.items as Array<Record<string, unknown>>));
+        } else if (Array.isArray(r.media) && (r.media as unknown[]).length > 0) {
+          posts.push(...(r.media as Array<Record<string, unknown>>));
+        } else if (r.caption || r.text) {
           posts.push(r);
         }
       }
-      this.addEvent(brewery.id, 'poll', `🧪 TEST: Got ${posts.length} posts from @${brewery.instagramHandle} (from ${rawResults.length} Apify result${rawResults.length > 1 ? 's' : ''})`);
+      this.addEvent(brewery.id, 'poll', `🧪 TEST: Got ${posts.length} posts from @${brewery.instagramHandle}`);
 
       const patterns = brewery.paymentProvider
         ? brewery.paymentProvider.urlPatterns
@@ -835,7 +845,7 @@ class BeerMuleService {
       }
 
       this.addEvent(brewery.id, 'poll',
-        `🧪 TEST COMPLETE: Scanned ${results.length} posts, found ${foundLinks} with ordering URLs. ${foundLinks > 0 ? 'Click the links in Activity to verify they work!' : 'No ordering URLs found — Troon may put the link in bio/stories instead of the caption. Check Activity log for raw post data.'}`);
+        `🧪 TEST COMPLETE: Scanned ${posts.length} posts, found ${foundLinks} with ordering URLs. ${foundLinks > 0 ? 'Click the links in Activity to verify they work!' : 'No ordering URLs found — Troon may put the link in bio/stories instead of the caption. Check Activity log for raw post data.'}`);
 
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
