@@ -762,27 +762,43 @@ class BeerMuleService {
         : (brewery.shopUrlPatterns || []);
 
       let foundLinks = 0;
-      for (const item of results) {
-        const caption = String(item.caption || item.text || item.alt || '');
-        if (!caption) continue;
+      for (let i = 0; i < results.length; i++) {
+        const item = results[i];
 
-        const urls = this.extractUrlsFromPost(caption, patterns);
-        const postUrl = String(item.url || item.displayUrl || `https://instagram.com/p/${item.shortCode || item.id}`);
+        const availableFields = Object.keys(item).join(', ');
+        this.addEvent(brewery.id, 'poll',
+          `🧪 POST ${i + 1} fields: ${availableFields}`,
+          { rawItem: item });
 
-        if (urls.length > 0) {
+        const caption = String(item.caption || item.text || item.alt || item.description || '');
+        const postUrl = String(item.url || item.displayUrl || item.postUrl || item.link || `https://instagram.com/p/${item.shortCode || item.id}`);
+
+        const allText = [
+          caption,
+          String(item.url || ''),
+          String(item.link || ''),
+          String(item.displayUrl || ''),
+          String(item.postUrl || ''),
+          ...(Array.isArray(item.hashtags) ? item.hashtags.map(String) : []),
+        ].join(' ');
+
+        const allUrls = this.extractUrlsFromPost(allText, []);
+        const matchedUrls = this.extractUrlsFromPost(allText, patterns);
+
+        this.addEvent(brewery.id, 'poll',
+          `🧪 POST ${i + 1}: Caption (${caption.length} chars): "${caption.substring(0, 150)}${caption.length > 150 ? '...' : ''}"  |  All URLs found: ${allUrls.length > 0 ? allUrls.join(', ') : 'NONE'}  |  Matched URLs (${patterns.join('/')}): ${matchedUrls.length > 0 ? matchedUrls.join(', ') : 'NONE'}`,
+          { postUrl });
+
+        if (matchedUrls.length > 0) {
           foundLinks++;
           this.addEvent(brewery.id, 'release_detected',
-            `🧪 TEST: Found ordering URL in post → ${urls[0]}  |  Caption: "${caption.substring(0, 100)}..."`,
-            { postUrl, shopUrl: urls[0], testOnly: true });
-        } else {
-          this.addEvent(brewery.id, 'poll',
-            `🧪 TEST: Post has no ${patterns.length > 0 ? patterns.join('/') : 'ordering'} URL. Caption: "${caption.substring(0, 80)}..."`,
-            { postUrl });
+            `🧪 TEST: ✅ Found ordering URL → ${matchedUrls[0]}`,
+            { postUrl, shopUrl: matchedUrls[0], testOnly: true });
         }
       }
 
       this.addEvent(brewery.id, 'poll',
-        `🧪 TEST COMPLETE: Scanned ${results.length} posts, found ${foundLinks} with ordering URLs. ${foundLinks > 0 ? 'Click the links in Activity to verify they work!' : 'No ordering URLs found in recent posts (Troon may not have a current release).'}`);
+        `🧪 TEST COMPLETE: Scanned ${results.length} posts, found ${foundLinks} with ordering URLs. ${foundLinks > 0 ? 'Click the links in Activity to verify they work!' : 'No ordering URLs found — Troon may put the link in bio/stories instead of the caption. Check Activity log for raw post data.'}`);
 
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
