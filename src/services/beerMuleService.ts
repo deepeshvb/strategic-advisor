@@ -454,8 +454,12 @@ class BeerMuleService {
   }
 
   private async pollAllBreweries(): Promise<void> {
+    const today = new Date().getDay();
     const active = this.breweries.filter(b => b.enabled);
     for (const brewery of active) {
+      if (brewery.releaseDays.length > 0 && !brewery.releaseDays.includes(today)) {
+        continue;
+      }
       try {
         await this.pollBrewery(brewery);
       } catch (err) {
