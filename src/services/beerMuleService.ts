@@ -526,8 +526,7 @@ class BeerMuleService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          directUrls: [`https://www.instagram.com/${brewery.instagramHandle}/`],
-          resultsType: 'posts',
+          username: [brewery.instagramHandle],
           resultsLimit: 5,
         }),
       });
@@ -761,8 +760,7 @@ class BeerMuleService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          directUrls: [`https://www.instagram.com/${brewery.instagramHandle}/`],
-          resultsType: 'posts',
+          username: [brewery.instagramHandle],
           resultsLimit: 10,
         }),
       });
@@ -785,8 +783,13 @@ class BeerMuleService {
 
         const availableFields = Object.keys(item).join(', ');
         this.addEvent(brewery.id, 'poll',
-          `🧪 POST ${i + 1} fields: ${availableFields}`,
-          { rawItem: item });
+          `🧪 POST ${i + 1} fields: ${availableFields}`);
+
+        if (i === 0) {
+          const rawDump = JSON.stringify(item, null, 0).substring(0, 500);
+          this.addEvent(brewery.id, 'poll',
+            `🧪 POST 1 RAW DATA: ${rawDump}`);
+        }
 
         const caption = String(item.caption || item.text || item.alt || item.description || '');
         const postUrl = String(item.url || item.displayUrl || item.postUrl || item.link || `https://instagram.com/p/${item.shortCode || item.id}`);
