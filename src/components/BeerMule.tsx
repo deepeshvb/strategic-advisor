@@ -1413,20 +1413,37 @@ function ConfigTab() {
           </p>
         </div>
 
-        {/* Instagram proxy */}
+        {/* Apify Instagram Integration */}
         <div>
-          <h4 className="text-sm text-amber-400 font-semibold mb-3">Instagram Monitoring</h4>
-          <label className="block text-xs text-gray-400 mb-1">Instagram Proxy / Scraper API URL</label>
-          <input
-            value={config.instagramProxyUrl}
-            onChange={e => save({ instagramProxyUrl: e.target.value })}
-            placeholder="https://your-ig-scraper.example.com"
-            className="w-full bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
-          />
-          <p className="text-xs text-gray-500 mt-1">
-            Instagram requires authenticated access. Provide a proxy endpoint that returns recent posts as JSON.
-            Without this, Beer Mule will log poll attempts but cannot fetch live posts.
-          </p>
+          <h4 className="text-sm text-amber-400 font-semibold mb-3">Instagram Monitoring (Apify)</h4>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Apify API Token *</label>
+              <input
+                type="password"
+                value={config.apifyApiToken}
+                onChange={e => save({ apifyApiToken: e.target.value })}
+                placeholder="apify_api_..."
+                className="w-full bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Get your token at <a href="https://console.apify.com/account/integrations" target="_blank" rel="noopener noreferrer" className="text-amber-400 hover:text-amber-300 underline">apify.com → Settings → Integrations → API tokens</a>.
+                Free tier gives ~30 runs/month.
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Apify Actor ID</label>
+              <input
+                value={config.apifyActorId}
+                onChange={e => save({ apifyActorId: e.target.value })}
+                placeholder="apify/instagram-post-scraper"
+                className="w-full bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Default: <code className="text-amber-400">apify/instagram-post-scraper</code>. Change only if using a different scraper actor.
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* AI Parsing */}
@@ -1448,10 +1465,10 @@ function ConfigTab() {
         <div className="bg-amber-900/20 border border-amber-700/30 rounded-lg p-4">
           <h5 className="text-amber-400 font-semibold text-sm mb-2">How It Works</h5>
           <ol className="text-xs text-gray-300 space-y-1.5 list-decimal list-inside">
-            <li>Beer Mule polls each brewery's Instagram feed at the configured interval.</li>
-            <li>During the release window (±{config.releaseWindowMinutes} min of the hint time), polling accelerates to every {config.fastPollIntervalSeconds}s.</li>
-            <li>When a post matches release keywords, the agent immediately triggers the auto-purchase flow.</li>
-            <li>The purchase service navigates the brewery's online shop, adds the beer at max quantity, and checks out.</li>
+            <li>Beer Mule calls Apify to fetch the latest posts from each brewery's Instagram.</li>
+            <li>Polls every {config.pollIntervalSeconds}s (faster at {config.fastPollIntervalSeconds}s during release windows).</li>
+            <li>When a post matches release keywords, it extracts the ordering URL (e.g. Square link).</li>
+            <li>Auto-checkout fills your saved details and payment card, places the order instantly.</li>
             <li>All activity is logged in the Activity tab; purchase results appear in Purchases.</li>
           </ol>
         </div>

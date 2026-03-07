@@ -185,8 +185,12 @@ export interface BeerMuleConfig {
   releaseWindowMinutes: number;
   /** Auto-purchase enabled globally */
   autoPurchaseEnabled: boolean;
-  /** Instagram API proxy / scraper endpoint (user-provided) */
+  /** @deprecated Use apifyApiToken + apifyActorId instead */
   instagramProxyUrl: string;
+  /** Apify API token (from apify.com → Settings → Integrations → API tokens) */
+  apifyApiToken: string;
+  /** Apify Actor ID for Instagram scraping (default: apify/instagram-post-scraper) */
+  apifyActorId: string;
   /** Anthropic key re-use for smart post parsing */
   useAiParsing: boolean;
   /** Default WhatsApp number for Beer Hunt alerts (e.g. +1234567890) */
@@ -207,6 +211,8 @@ const DEFAULT_CONFIG: BeerMuleConfig = {
   releaseWindowMinutes: 30,
   autoPurchaseEnabled: true,
   instagramProxyUrl: '',
+  apifyApiToken: '',
+  apifyActorId: 'apify/instagram-post-scraper',
   useAiParsing: false,
   alertWhatsAppNumber: '',
   beerHuntPollIntervalSeconds: 300,
@@ -474,63 +480,88 @@ class BeerMuleService {
     });
   }
 
+  /** Track post IDs we've already processed to avoid duplicates */
+  private seenPostIds = new Set<string>();
+
   /**
-   * Poll a single brewery's Instagram feed for new release posts.
-   * 
-   * In production this would hit an Instagram scraper / proxy API.
-   * For now we simulate the detection pipeline so the full UI and
-   * purchase flow can be demonstrated and tested end-to-end.
+   * Poll a single brewery's Instagram feed via Apify.
+   * Calls the Apify Instagram scraper actor synchronously, gets recent posts,
+   * scans for release keywords, extracts ordering URLs, and triggers purchase.
    */
   private async pollBrewery(brewery: Brewery): Promise<void> {
     const allKeywords = [...DEFAULT_RELEASE_KEYWORDS, ...brewery.keywords];
 
-    if (!this.config.instagramProxyUrl) {
-      this.addEvent(brewery.id, 'poll', `Polled @${brewery.instagramHandle} — waiting for Instagram proxy URL to enable live monitoring`);
+    if (!this.config.apifyApiToken) {
+      this.addEvent(brewery.id, 'poll', `Polled @${brewery.instagramHandle} — add your Apify API token in Config to enable live monitoring`);
       return;
     }
 
+    const actorId = this.config.apifyActorId || 'apify/instagram-post-scraper';
+
     try {
-      const res = await fetch(`${this.config.instagramProxyUrl}/api/instagram/${brewery.instagramHandle}/recent`);
+      const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${this.config.apifyApiToken}&format=json&limit=5`;
+
+      const res = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          usernames: [brewery.instagramHandle],
+          resultsLimit: 5,
+        }),
+      });
+
       if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+        const errText = await res.text().catch(() => '');
+        throw new Error(`Apify HTTP ${res.status}: ${errText.substring(0, 200)}`);
       }
-      const posts: Array<{ id: string; text: string; timestamp: string; url: string }> = await res.json();
 
-      for (const post of posts) {
-        const lowerText = post.text.toLowerCase();
+      const results: Array<Record<string, unknown>> = await res.json();
+      this.addEvent(brewery.id, 'poll', `Fetched ${results.length} posts from @${brewery.instagramHandle} via Apify`);
+
+      for (const item of results) {
+        const postId = String(item.id || item.shortCode || item.url || '');
+        if (postId && this.seenPostIds.has(postId)) continue;
+        if (postId) this.seenPostIds.add(postId);
+
+        const caption = String(item.caption || item.text || item.alt || '');
+        if (!caption) continue;
+
+        const lowerText = caption.toLowerCase();
         const isRelease = allKeywords.some(kw => lowerText.includes(kw.toLowerCase()));
-        if (isRelease) {
-          let shopUrl = post.url;
+        if (!isRelease) continue;
 
-          if (brewery.shopUrlMode === 'from_post') {
-            const patterns = brewery.paymentProvider
-              ? brewery.paymentProvider.urlPatterns
-              : (brewery.shopUrlPatterns || []);
-            const extracted = this.extractUrlsFromPost(post.text, patterns);
-            if (extracted.length > 0) {
-              shopUrl = extracted[0];
-              this.addEvent(brewery.id, 'release_detected',
-                `🚨 Release detected from @${brewery.instagramHandle}! Ordering URL found in post: ${shopUrl}`,
-                { postUrl: post.url, shopUrl });
-            } else {
-              this.addEvent(brewery.id, 'release_detected',
-                `🚨 Release detected from @${brewery.instagramHandle} but no ordering URL found in post text. Post: "${post.text.substring(0, 120)}..."`,
-                { postUrl: post.url });
-            }
+        const postUrl = String(item.url || item.displayUrl || `https://instagram.com/p/${item.shortCode || postId}`);
+        let shopUrl = postUrl;
+
+        if (brewery.shopUrlMode === 'from_post') {
+          const patterns = brewery.paymentProvider
+            ? brewery.paymentProvider.urlPatterns
+            : (brewery.shopUrlPatterns || []);
+          const extracted = this.extractUrlsFromPost(caption, patterns);
+          if (extracted.length > 0) {
+            shopUrl = extracted[0];
+            this.addEvent(brewery.id, 'release_detected',
+              `🚨 RELEASE from @${brewery.instagramHandle}! Ordering URL: ${shopUrl}`,
+              { postUrl, shopUrl, caption: caption.substring(0, 200) });
           } else {
             this.addEvent(brewery.id, 'release_detected',
-              `🚨 Release detected from @${brewery.instagramHandle}: "${post.text.substring(0, 100)}..."`,
-              { postUrl: post.url });
+              `🚨 Release from @${brewery.instagramHandle} but no ordering URL in post. Caption: "${caption.substring(0, 120)}..."`,
+              { postUrl });
+            continue;
           }
+        } else {
+          this.addEvent(brewery.id, 'release_detected',
+            `🚨 Release from @${brewery.instagramHandle}: "${caption.substring(0, 100)}..."`,
+            { postUrl });
+        }
 
-          if (this.config.autoPurchaseEnabled) {
-            await this.attemptPurchase(brewery, post.text, shopUrl);
-          }
+        if (this.config.autoPurchaseEnabled) {
+          await this.attemptPurchase(brewery, caption, shopUrl);
         }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.addEvent(brewery.id, 'error', `Failed to fetch posts for @${brewery.instagramHandle}: ${msg}`);
+      this.addEvent(brewery.id, 'error', `Apify poll failed for @${brewery.instagramHandle}: ${msg}`);
     }
   }
 
