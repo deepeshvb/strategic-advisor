@@ -536,10 +536,18 @@ class BeerMuleService {
         throw new Error(`Apify HTTP ${res.status}: ${errText.substring(0, 200)}`);
       }
 
-      const results: Array<Record<string, unknown>> = await res.json();
-      this.addEvent(brewery.id, 'poll', `Fetched ${results.length} posts from @${brewery.instagramHandle} via Apify`);
+      const rawResults: Array<Record<string, unknown>> = await res.json();
+      const posts: Array<Record<string, unknown>> = [];
+      for (const r of rawResults) {
+        if (Array.isArray(r.latestPosts)) {
+          posts.push(...(r.latestPosts as Array<Record<string, unknown>>));
+        } else {
+          posts.push(r);
+        }
+      }
+      this.addEvent(brewery.id, 'poll', `Fetched ${posts.length} posts from @${brewery.instagramHandle} via Apify`);
 
-      for (const item of results) {
+      for (const item of posts) {
         const postId = String(item.id || item.shortCode || item.url || '');
         if (postId && this.seenPostIds.has(postId)) continue;
         if (postId) this.seenPostIds.add(postId);
@@ -770,16 +778,24 @@ class BeerMuleService {
         throw new Error(`Apify HTTP ${res.status}: ${errText.substring(0, 200)}`);
       }
 
-      const results: Array<Record<string, unknown>> = await res.json();
-      this.addEvent(brewery.id, 'poll', `🧪 TEST: Got ${results.length} real posts from @${brewery.instagramHandle}`);
+      const rawResults: Array<Record<string, unknown>> = await res.json();
+      const posts: Array<Record<string, unknown>> = [];
+      for (const r of rawResults) {
+        if (Array.isArray(r.latestPosts)) {
+          posts.push(...(r.latestPosts as Array<Record<string, unknown>>));
+        } else {
+          posts.push(r);
+        }
+      }
+      this.addEvent(brewery.id, 'poll', `🧪 TEST: Got ${posts.length} posts from @${brewery.instagramHandle} (from ${rawResults.length} Apify result${rawResults.length > 1 ? 's' : ''})`);
 
       const patterns = brewery.paymentProvider
         ? brewery.paymentProvider.urlPatterns
         : (brewery.shopUrlPatterns || []);
 
       let foundLinks = 0;
-      for (let i = 0; i < results.length; i++) {
-        const item = results[i];
+      for (let i = 0; i < posts.length; i++) {
+        const item = posts[i];
 
         const availableFields = Object.keys(item).join(', ');
         this.addEvent(brewery.id, 'poll',
@@ -791,7 +807,7 @@ class BeerMuleService {
             `🧪 POST 1 RAW DATA: ${rawDump}`);
         }
 
-        const caption = String(item.caption || item.text || item.alt || item.description || '');
+        const caption = String(item.caption || item.text || item.alt || '');
         const postUrl = String(item.url || item.displayUrl || item.postUrl || item.link || `https://instagram.com/p/${item.shortCode || item.id}`);
 
         const allText = [
