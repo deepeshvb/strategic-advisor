@@ -16,9 +16,15 @@ export default defineConfig({
       'localhost',
     ],
     proxy: {
-      // Proxy Voice API requests through main dev server
-      '/api/voice': {
-        target: 'http://localhost:3001',
+      // Proxy backend API requests to avoid CORS issues
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        secure: false,
+      },
+      // Proxy Twilio webhooks (WhatsApp/SMS) to backend - required when ngrok points to 5173
+      '/webhook': {
+        target: 'http://localhost:3000',
         changeOrigin: true,
         secure: false,
       },

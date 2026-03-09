@@ -199,6 +199,12 @@ export interface BeerMuleConfig {
   beerHuntPollIntervalSeconds: number;
   /** Saved payment methods for auto-checkout */
   paymentMethods: SavedPaymentMethod[];
+  /** Only run monitoring on these days (0=Sun … 6=Sat). Empty = every day. */
+  monitoringDays: number[];
+  /** Start of daily window (HH:mm, 24h). Monitoring runs only between start and end. */
+  monitoringStartTime: string;
+  /** End of daily window (HH:mm, 24h). */
+  monitoringEndTime: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,11 +218,14 @@ const DEFAULT_CONFIG: BeerMuleConfig = {
   autoPurchaseEnabled: true,
   instagramProxyUrl: '',
   apifyApiToken: '',
-  apifyActorId: 'apify/instagram-profile-scraper',
+  apifyActorId: 'apify/instagram-post-scraper',
   useAiParsing: false,
   alertWhatsAppNumber: '',
   beerHuntPollIntervalSeconds: 300,
   paymentMethods: [],
+  monitoringDays: [],
+  monitoringStartTime: '00:00',
+  monitoringEndTime: '23:59',
 };
 
 const DEFAULT_RELEASE_KEYWORDS = [
@@ -253,6 +262,7 @@ const STORAGE_KEYS = {
   config: 'beer_mule_config',
   hunts: 'beer_mule_hunts',
   sightings: 'beer_mule_sightings',
+  monitoringActive: 'beer_mule_monitoring_active',
 } as const;
 
 function loadJson<T>(key: string, fallback: T): T {
@@ -302,6 +312,10 @@ class BeerMuleService {
     this.hunts = loadJson<BeerHunt[]>(STORAGE_KEYS.hunts, []);
     this.sightings = loadJson<BeerSighting[]>(STORAGE_KEYS.sightings, []);
     this.config = { ...DEFAULT_CONFIG, ...loadJson<Partial<BeerMuleConfig>>(STORAGE_KEYS.config, {}) };
+    if (localStorage.getItem(STORAGE_KEYS.monitoringActive) === 'true') {
+      this.pollTimer = setInterval(() => this.tick(), this.config.pollIntervalSeconds * 1000);
+      this.addEvent('system', 'poll', 'Monitoring restored (runs across tabs until you click Stop).');
+    }
   }
 
   private persist(): void {
@@ -432,15 +446,13 @@ class BeerMuleService {
 
   startMonitoring(): void {
     if (this.pollTimer) return;
-    console.log('🍺 Beer Mule monitoring started');
-    this.addEvent('system', 'poll', 'Monitoring started');
+    localStorage.setItem(STORAGE_KEYS.monitoringActive, 'true');
+    console.log('🍺 Beer Mule monitoring started (runs across tabs until Stop)');
+    this.addEvent('system', 'poll', 'Monitoring started — runs on your schedule until you click Stop.');
     this.notify();
 
-    this.pollTimer = setInterval(() => {
-      this.pollAllBreweries();
-    }, this.config.pollIntervalSeconds * 1000);
-
-    this.pollAllBreweries();
+    this.pollTimer = setInterval(() => this.tick(), this.config.pollIntervalSeconds * 1000);
+    this.tick();
   }
 
   stopMonitoring(): void {
@@ -448,9 +460,29 @@ class BeerMuleService {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
+    localStorage.removeItem(STORAGE_KEYS.monitoringActive);
     console.log('🍺 Beer Mule monitoring stopped');
     this.addEvent('system', 'poll', 'Monitoring stopped');
     this.notify();
+  }
+
+  /** Single tick: only poll if within configured days and time window. */
+  private tick(): void {
+    if (!this.isWithinSchedule()) return;
+    this.pollAllBreweries();
+  }
+
+  /** True if current day and time are inside config.monitoringDays and [monitoringStartTime, monitoringEndTime]. */
+  private isWithinSchedule(): boolean {
+    const days = this.config.monitoringDays;
+    const startTime = this.config.monitoringStartTime ?? '00:00';
+    const endTime = this.config.monitoringEndTime ?? '23:59';
+    const now = new Date();
+    const day = now.getDay();
+    const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    if (Array.isArray(days) && days.length > 0 && !days.includes(day)) return false;
+    if (timeStr < startTime || timeStr > endTime) return false;
+    return true;
   }
 
   private async pollAllBreweries(): Promise<void> {
@@ -560,6 +592,26 @@ class BeerMuleService {
   /** Track post IDs we've already processed to avoid duplicates */
   private seenPostIds = new Set<string>();
 
+  /** Build Apify actor input per actor: each has different input schema. */
+  private buildApifyInput(instagramHandle: string, limit: number, actorIdOrSlug: string): Record<string, unknown> {
+    const handle = instagramHandle.replace(/^@/, '');
+    const profileUrl = `https://www.instagram.com/${handle}`;
+    if (actorIdOrSlug.includes('scrapier/instagram-profile-post-scraper')) {
+      return { startUrls: [profileUrl, handle], maxPosts: limit };
+    }
+    if (actorIdOrSlug.includes('apidojo/instagram-scraper-api')) {
+      return { startUrls: [profileUrl], maxItems: limit };
+    }
+    if (actorIdOrSlug.includes('scraper-engine/instagram-post-scraper')) {
+      return { startUrls: [profileUrl, handle], maxPosts: limit };
+    }
+    return {
+      username: [handle],
+      usernames: [handle],
+      resultsLimit: limit,
+    };
+  }
+
   /**
    * Poll a single brewery's Instagram feed via Apify.
    * Calls the Apify Instagram scraper actor synchronously, gets recent posts,
@@ -578,14 +630,11 @@ class BeerMuleService {
 
     try {
       const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${encodeURIComponent(this.config.apifyApiToken)}&format=json`;
-
+      const input = this.buildApifyInput(brewery.instagramHandle, 15, rawActorId);
       const res = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          usernames: [brewery.instagramHandle],
-          resultsLimit: 5,
-        }),
+        body: JSON.stringify(input),
       });
 
       if (!res.ok) {
@@ -817,21 +866,20 @@ class BeerMuleService {
       return;
     }
 
-    const rawActorId = this.config.apifyActorId || 'apify/instagram-post-scraper';
+    const rawActorId = (this.config.apifyActorId || '').trim() || 'apify/instagram-post-scraper';
     const actorId = rawActorId.replace('/', '~');
 
     try {
+      this.addEvent(brewery.id, 'poll', `🧪 TEST: Using Apify actor: ${rawActorId || '(default post-scraper)'}`);
       this.addEvent(brewery.id, 'poll', `🧪 TEST: Fetching real posts from @${brewery.instagramHandle}...`);
       this.notify();
 
       const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${encodeURIComponent(this.config.apifyApiToken)}&format=json`;
+      const input = this.buildApifyInput(brewery.instagramHandle, 15, rawActorId);
       const res = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          usernames: [brewery.instagramHandle],
-          resultsLimit: 10,
-        }),
+        body: JSON.stringify(input),
       });
 
       if (!res.ok) {
@@ -875,11 +923,45 @@ class BeerMuleService {
       }
       this.addEvent(brewery.id, 'poll', `🧪 TEST: Got ${posts.length} posts from @${brewery.instagramHandle}`);
 
+      const isProfileShape = rawResults.length > 0 && rawResults.some(r => 'biography' in r && 'latestPosts' in r);
+      if (posts.length === 0 && isProfileShape) {
+        this.addEvent(brewery.id, 'poll',
+          `⚠️ Post scraper returned profile-only (0 posts) for this account — Instagram or the actor may be limiting. Run the same input in Apify Console to confirm; for “link in post” ordering you need an actor that returns post captions.`);
+      }
+
       const patterns = brewery.paymentProvider
         ? brewery.paymentProvider.urlPatterns
         : (brewery.shopUrlPatterns || []);
 
       let foundLinks = 0;
+
+      // When scraper returns profile data with 0 posts, still check bio/link-in-bio (externalUrls + biography)
+      const profileBioUrls: string[] = [];
+      for (const r of rawResults) {
+        const bio = String(r.biography || '');
+        const externalUrls = (r.externalUrls as Array<{ url?: string; lynx_url?: string }>) || [];
+        for (const e of externalUrls) {
+          const u = e?.url || (e?.lynx_url && e.lynx_url.startsWith('http') ? e.lynx_url : '');
+          if (u) profileBioUrls.push(u);
+        }
+        if (bio) {
+          const fromBio = this.extractUrlsFromPost(bio, []);
+          profileBioUrls.push(...fromBio);
+        }
+      }
+      const uniqueBioUrls = [...new Set(profileBioUrls)];
+      if (uniqueBioUrls.length > 0) {
+        this.addEvent(brewery.id, 'poll',
+          `🧪 Profile (bio) links: ${uniqueBioUrls.join(', ')}`);
+        const bioText = uniqueBioUrls.join(' ') + (rawResults.map(r => String(r.biography || '')).join(' '));
+        const matchedBio = this.extractUrlsFromPost(bioText, patterns);
+        if (matchedBio.length > 0) {
+          foundLinks += 1;
+          this.addEvent(brewery.id, 'release_detected',
+            `🧪 TEST: ✅ Found ordering URL in profile bio → ${matchedBio[0]}`,
+            { shopUrl: matchedBio[0], testOnly: true });
+        }
+      }
       for (let i = 0; i < posts.length; i++) {
         const item = posts[i];
 
@@ -920,8 +1002,13 @@ class BeerMuleService {
         }
       }
 
+      const bioNote = posts.length === 0 && uniqueBioUrls.length > 0
+        ? ` Profile has ${uniqueBioUrls.length} bio link(s) — see above.`
+        : posts.length === 0
+          ? ' No posts returned by scraper; check Activity for raw profile data.'
+          : '';
       this.addEvent(brewery.id, 'poll',
-        `🧪 TEST COMPLETE: Scanned ${posts.length} posts, found ${foundLinks} with ordering URLs. ${foundLinks > 0 ? 'Click the links in Activity to verify they work!' : 'No ordering URLs found — Troon may put the link in bio/stories instead of the caption. Check Activity log for raw post data.'}`);
+        `🧪 TEST COMPLETE: Scanned ${posts.length} posts, found ${foundLinks} with ordering URLs.${bioNote} ${foundLinks > 0 ? 'Click the links in Activity to verify they work!' : patterns.length > 0 ? 'No ordering URLs matched your patterns — Troon may use link in bio or stories.' : ''}`);
 
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

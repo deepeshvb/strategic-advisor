@@ -7,6 +7,16 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Backend runtime data
+data/
+tmp/
+backend/data/
+backend/config.json
+
+# Deployment
+.nssm/
+.watchdog-state
+
 node_modules
 dist
 dist-ssr
@@ -25,5 +35,6 @@ dist-ssr
 
 # Environment variables
 .env
+.env.backend
 .env.local
 .env.*.local

@@ -2,28 +2,43 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     
     <!-- Mobile Optimized Viewport -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
     
     <!-- PWA Meta Tags -->
-    <meta name="theme-color" content="#10b981" />
-    <meta name="description" content="AGI-powered strategic intelligence advisor for CEOs and founders. Background monitoring, critical alerts, and proactive insights." />
+    <meta name="theme-color" content="#c44a1f" />
+    <meta name="description" content="Lobster Console — General setup and agents: Chanakya (insights & briefings), Henry (travel & dining), and more." />
     
     <!-- iOS PWA Support -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="StrategicAI" />
+    <meta name="apple-mobile-web-app-title" content="Lobster Console" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     
     <!-- PWA Manifest -->
     <link rel="manifest" href="/manifest.json" />
     
-    <title>Strategic Advisor - AGI Intelligence</title>
+    <title>Lobster Console</title>
   </head>
-  <body>
-    <div id="root"></div>
+  <body style="margin:0;background:#0c0a09;color:#fff;min-height:100vh;font-family:Inter,system-ui,sans-serif">
+    <div id="root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#0c0a09">
+      <div style="text-align:center;max-width:360px">
+        <p style="font-size:18px;margin:0;color:#fff">Loading Lobster Console...</p>
+        <p style="font-size:14px;color:#9ca3af;margin-top:12px">If this doesn’t change: open the project folder in a terminal and run <strong style="color:#e5e7eb">npm run dev</strong>, then open <strong style="color:#e5e7eb">http://localhost:5173</strong></p>
+        <p style="font-size:13px;color:#6b7280;margin-top:8px">Or <a href="/config-simple.html" style="color:#f97345">use simple config</a> · Check console (F12) for errors</p>
+      </div>
+    </div>
+    <noscript>
+      <div style="padding:24px;color:#ef4444">
+        <h1>JavaScript required</h1>
+        <p>Enable JavaScript or use <a href="/config-simple.html" style="color:#f97345">/config-simple.html</a></p>
+      </div>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

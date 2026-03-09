@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Mic, MicOff, Volume2, VolumeX, Sparkles } from 'lucide-react';
+import { Send, Loader2, Mic, MicOff, Volume2, VolumeX, Sparkles, Mail } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Message } from '../types';
@@ -356,6 +356,11 @@ export default function ChatInterface({ context: _context }: ChatInterfaceProps)
     setIsLoading(false);
   };
 
+  const wantsEmailBriefing = (text: string) => {
+    const lower = text.toLowerCase().trim();
+    return ['brief', 'briefing', 'updates', 'update', 'summary', 'email me', 'send briefing', 'send updates', 'send summary'].some(k => lower === k || lower.includes(k));
+  };
+
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
@@ -371,6 +376,24 @@ export default function ChatInterface({ context: _context }: ChatInterfaceProps)
     setIsLoading(true);
 
     try {
+      // If user asks for briefing/updates/summary, trigger email
+      if (wantsEmailBriefing(input)) {
+        try {
+          const res = await fetch('/api/request-briefing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+          const data = await res.json();
+          if (data.success) {
+            setMessages((prev) => [...prev, {
+              id: `briefing-${Date.now()}`,
+              role: 'assistant',
+              content: `✅ **Briefing sent!** Check your email at ${data.message?.replace('Briefing sent to ', '') || 'your configured address'}.\n\nI\'ve also prepared a summary below.`,
+              timestamp: new Date(),
+            }]);
+          }
+        } catch (_) {
+          /* API may be unavailable */
+        }
+      }
+
       // Build CEO context and generate strategic response
       const ceoContext = buildCEOContext();
       const aiResponse = await generateCEOResponse(input, ceoContext);
@@ -428,6 +451,7 @@ export default function ChatInterface({ context: _context }: ChatInterfaceProps)
       <div className="border-b border-slate-700 p-3">
         <div className="flex justify-between items-center mb-3">
           <h2 className="text-lg font-semibold text-gray-200">Strategic Coworker AI</h2>
+        <div className="flex gap-2">
           <button
             onClick={loadDailyBriefing}
             disabled={isLoading}
@@ -437,6 +461,37 @@ export default function ChatInterface({ context: _context }: ChatInterfaceProps)
             <Sparkles className="w-4 h-4" />
             Daily Briefing
           </button>
+          <button
+            onClick={async () => {
+              if (isLoading) return;
+              setIsLoading(true);
+              try {
+                const res = await fetch('/api/request-briefing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+                const data = await res.json();
+                setMessages((prev) => [...prev, {
+                  id: `email-${Date.now()}`,
+                  role: 'assistant',
+                  content: data.success ? `✅ **Briefing emailed!** ${data.message}` : `⚠️ ${data.error || 'Could not send. Check email config.'}`,
+                  timestamp: new Date(),
+                }]);
+              } catch (e) {
+                setMessages((prev) => [...prev, {
+                  id: `email-err-${Date.now()}`,
+                  role: 'assistant',
+                  content: '⚠️ Could not send briefing. Is the backend running?',
+                  timestamp: new Date(),
+                }]);
+              }
+              setIsLoading(false);
+            }}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-3 py-1.5 bg-slate-600 hover:bg-slate-500 disabled:bg-slate-700 text-white text-sm rounded-lg transition-colors"
+            title="Email me a briefing"
+          >
+            <Mail className="w-4 h-4" />
+            Email Briefing
+          </button>
+        </div>
         </div>
         <IntegrationStatus />
       </div>

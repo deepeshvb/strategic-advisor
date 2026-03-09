@@ -1361,6 +1361,66 @@ function ConfigTab() {
           </div>
         </div>
 
+        {/* Monitoring schedule: days + time window */}
+        <div>
+          <h4 className="text-sm text-amber-400 font-semibold mb-3">Monitoring Schedule</h4>
+          <p className="text-xs text-gray-500 mb-3">
+            Monitoring runs only on the selected days and between start and end time. It keeps running when you switch console tabs until you click Stop.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs text-gray-400 mb-2">Days to monitor</label>
+              <div className="flex flex-wrap gap-2">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((label, i) => {
+                  const current = config.monitoringDays ?? [];
+                  const allDays = current.length === 0;
+                  const checked = allDays || current.includes(i);
+                  return (
+                    <label key={i} className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={e => {
+                          const cur = config.monitoringDays ?? [];
+                          const isAll = cur.length === 0;
+                          if (e.target.checked) {
+                            const next = isAll ? [] : (cur.includes(i) ? cur : [...cur, i].sort((a, b) => a - b));
+                            save({ monitoringDays: next.length === 7 ? [] : next });
+                          } else {
+                            const next = isAll ? [0,1,2,3,4,5,6].filter(d => d !== i) : cur.filter(d => d !== i);
+                            save({ monitoringDays: next.length === 7 ? [] : next });
+                          }
+                        }}
+                        className="accent-amber-500 w-4 h-4"
+                      />
+                      <span className="text-sm text-white">{label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Leave all checked = every day.</p>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Start time (24h)</label>
+              <input
+                type="time"
+                value={config.monitoringStartTime ?? '00:00'}
+                onChange={e => save({ monitoringStartTime: e.target.value })}
+                className="w-full bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">End time (24h)</label>
+              <input
+                type="time"
+                value={config.monitoringEndTime ?? '23:59'}
+                onChange={e => save({ monitoringEndTime: e.target.value })}
+                className="w-full bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+              />
+            </div>
+          </div>
+        </div>
+
         {/* Auto-purchase */}
         <div>
           <h4 className="text-sm text-amber-400 font-semibold mb-3">Auto-Purchase</h4>
@@ -1442,11 +1502,11 @@ function ConfigTab() {
               <input
                 value={config.apifyActorId}
                 onChange={e => save({ apifyActorId: e.target.value })}
-                placeholder="singhera07/instagram-scraper"
+                placeholder="apify/instagram-post-scraper"
                 className="w-full bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
               />
               <p className="text-xs text-gray-500 mt-1">
-                Default: <code className="text-amber-400">singhera07/instagram-scraper</code>. Change only if using a different scraper actor.
+                For post captions (e.g. Troon): free <code className="text-amber-400">apify/instagram-post-scraper</code> (may return 0 posts for some accounts). Cheaper paid: <code className="text-amber-400">apidojo/instagram-scraper-api</code> (pay-per-use ~$0.005/run) or <code className="text-amber-400">scraper-engine/instagram-post-scraper</code> ($5.99/mo).
               </p>
             </div>
           </div>

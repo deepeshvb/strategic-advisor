@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Settings, 
   Phone, 
@@ -54,6 +54,9 @@ interface Config {
     meetingPrepTimezone?: string;
     meetingTranscriptionEnabled?: boolean;
     meetingTranscriptionHoursLookback?: number;
+    weeklyReviewEnabled?: boolean;
+    weeklyReviewDay?: number;
+    weeklyReviewTime?: string;
   };
   twilio: {
     phoneNumber: string;
@@ -77,6 +80,10 @@ interface Config {
     preferredClassOfTravel?: string;
     preferredAirlines?: string;
     maxStops?: string | number;
+    priceMonitorEnabled?: boolean;
+    priceMonitorIntervalHours?: number;
+    amadeusApiKey?: string;
+    amadeusApiSecret?: string;
   };
 }
 
@@ -854,6 +861,177 @@ function TravelPlanForm({
   );
 }
 
+function HenryPriceMonitorTrips({ enabled }: { enabled: boolean }) {
+  const [trips, setTrips] = useState<Array<{
+    id: string;
+    origin: string;
+    destination: string;
+    startDate: string;
+    endDate: string;
+    travelers: number;
+    cabinClass: string;
+    currency: string;
+    enabled: boolean;
+    lastPrice?: number | null;
+    lastPriceAt?: string | null;
+    lastRecommendation?: { recommendBuy: boolean; reason: string; confidence: string } | null;
+  }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [runNowLoading, setRunNowLoading] = useState(false);
+  const [addOrigin, setAddOrigin] = useState('');
+  const [addDestination, setAddDestination] = useState('');
+  const [addStartDate, setAddStartDate] = useState('');
+  const [addEndDate, setAddEndDate] = useState('');
+  const [addTravelers, setAddTravelers] = useState(1);
+  const [addCabinClass, setAddCabinClass] = useState('ECONOMY');
+  const [addCurrency, setAddCurrency] = useState('USD');
+  const [addLoading, setAddLoading] = useState(false);
+
+  const loadTrips = useCallback(async () => {
+    try {
+      const res = await fetch('/api/travel/price-monitor/trips');
+      if (res.ok) {
+        const data = await res.json();
+        setTrips(data.trips || []);
+      }
+    } catch (e) {
+      console.warn('Price monitor trips load failed:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (enabled) loadTrips();
+  }, [enabled, loadTrips]);
+
+  const handleAdd = async () => {
+    if (!addDestination.trim()) return;
+    setAddLoading(true);
+    try {
+      const res = await fetch('/api/travel/price-monitor/trips', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          origin: addOrigin.trim(),
+          destination: addDestination.trim(),
+          startDate: addStartDate.trim() || undefined,
+          endDate: addEndDate.trim() || undefined,
+          travelers: addTravelers,
+          cabinClass: addCabinClass,
+          currency: addCurrency,
+        }),
+      });
+      if (res.ok) {
+        setAddOrigin('');
+        setAddDestination('');
+        setAddStartDate('');
+        setAddEndDate('');
+        setAddTravelers(1);
+        loadTrips();
+      }
+    } finally {
+      setAddLoading(false);
+    }
+  };
+
+  const handleToggle = async (id: string, enabled: boolean) => {
+    try {
+      await fetch(`/api/travel/price-monitor/trips/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      loadTrips();
+    } catch (e) {
+      console.warn('Toggle failed:', e);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await fetch(`/api/travel/price-monitor/trips/${id}`, { method: 'DELETE' });
+      loadTrips();
+    } catch (e) {
+      console.warn('Delete failed:', e);
+    }
+  };
+
+  const handleRunNow = async () => {
+    setRunNowLoading(true);
+    try {
+      await fetch('/api/travel/price-monitor/run-now', { method: 'POST' });
+      loadTrips();
+    } finally {
+      setRunNowLoading(false);
+    }
+  };
+
+  if (!enabled) return null;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+        <input type="text" placeholder="Origin (e.g. EWR)" value={addOrigin} onChange={(e) => setAddOrigin(e.target.value)} className="config-input" />
+        <input type="text" placeholder="Destination (e.g. LIS)" value={addDestination} onChange={(e) => setAddDestination(e.target.value)} className="config-input" required />
+        <input type="date" placeholder="Start" value={addStartDate} onChange={(e) => setAddStartDate(e.target.value)} className="config-input" />
+        <input type="date" placeholder="End" value={addEndDate} onChange={(e) => setAddEndDate(e.target.value)} className="config-input" />
+        <input type="number" min={1} value={addTravelers} onChange={(e) => setAddTravelers(parseInt(e.target.value, 10) || 1)} className="config-input w-24" />
+        <select value={addCabinClass} onChange={(e) => setAddCabinClass(e.target.value)} className="config-input max-w-[140px]">
+          <option value="ECONOMY">Economy</option>
+          <option value="PREMIUM_ECONOMY">Premium economy</option>
+          <option value="BUSINESS">Business</option>
+          <option value="FIRST">First</option>
+        </select>
+        <select value={addCurrency} onChange={(e) => setAddCurrency(e.target.value)} className="config-input max-w-[80px]">
+          <option value="USD">USD</option>
+          <option value="EUR">EUR</option>
+          <option value="GBP">GBP</option>
+        </select>
+      </div>
+      <div className="flex gap-2">
+        <button type="button" onClick={handleAdd} disabled={addLoading || !addDestination.trim()} className="btn-secondary text-sm">
+          {addLoading ? 'Adding…' : 'Add trip to monitor'}
+        </button>
+        <button type="button" onClick={handleRunNow} disabled={runNowLoading} className="btn-secondary text-sm" title="Run price check now and update recommendations">
+          {runNowLoading ? 'Checking…' : 'Run price check now'}
+        </button>
+      </div>
+      {loading ? (
+        <p className="text-sm text-gray-500">Loading monitored trips…</p>
+      ) : trips.length === 0 ? (
+        <p className="text-sm text-gray-500">No trips yet. Add one above; Henry will check prices and alert you when AI recommends buying.</p>
+      ) : (
+        <ul className="divide-y divide-gray-700 text-sm">
+          {trips.map((t) => (
+            <li key={t.id} className="py-2 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-white">
+                {t.origin ? `${t.origin} → ` : ''}{t.destination}
+                {t.startDate && ` (${t.startDate}${t.endDate ? ` – ${t.endDate}` : ''})`}
+              </span>
+              <span className="text-gray-400">
+                {t.lastPrice != null ? `${t.currency} ${t.lastPrice}` : '—'}
+                {t.lastRecommendation && (
+                  <span className={t.lastRecommendation.recommendBuy ? ' text-green-400' : ' text-amber-400'}>
+                    {' '}{t.lastRecommendation.recommendBuy ? '✓ Buy' : 'Wait'}
+                  </span>
+                )}
+              </span>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input type="checkbox" checked={t.enabled} onChange={(e) => handleToggle(t.id, e.target.checked)} className="rounded border-gray-500 bg-gray-600 text-lobster-500" />
+                  <span className="text-xs text-gray-400">On</span>
+                </label>
+                <button type="button" onClick={() => handleDelete(t.id)} className="text-red-400 hover:text-red-300 text-xs">Remove</button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function HenryRestaurantAndReminders({ enabled }: { enabled: boolean }) {
   const [city, setCity] = useState('');
   const [cuisine, setCuisine] = useState('');
@@ -1126,6 +1304,8 @@ export const ConfigDashboard: React.FC = () => {
   const [meetingPrepResult, setMeetingPrepResult] = useState<{ success?: boolean; message?: string; meetingsCount?: number; email?: boolean; whatsapp?: boolean; whatsappError?: string | null; error?: string } | null>(null);
   const [sendingTranscription, setSendingTranscription] = useState(false);
   const [transcriptionResult, setTranscriptionResult] = useState<{ success?: boolean; message?: string; processed?: number; sent?: number; error?: string } | null>(null);
+  const [sendingWeeklyReview, setSendingWeeklyReview] = useState(false);
+  const [weeklyReviewResult, setWeeklyReviewResult] = useState<{ success?: boolean; message?: string; email?: boolean; whatsapp?: boolean; error?: string } | null>(null);
   const [ollamaStatus, setOllamaStatus] = useState<{ running: boolean; modelLoaded?: boolean; configuredModel?: string; error?: string } | null>(null);
   /** True when config/companies could not be loaded (backend down or timeout) — avoid saving and overwriting good data */
   const [configLoadFailed, setConfigLoadFailed] = useState(false);
@@ -1175,7 +1355,7 @@ export const ConfigDashboard: React.FC = () => {
     const defaultConfig: Config = {
       ceo: { phoneNumber: '', whatsappNumber: '', email: '' },
       monitoring: { intervalMinutes: 15, alertOnlyUrgent: false, quietHoursEnabled: false, quietHoursStart: '22:00', quietHoursEnd: '07:00' },
-      briefings: { morningTime: '08:00', eveningTime: '18:00', voiceMorning: true, voiceEvening: true, emailMorning: true, emailEvening: true, frequency: 'daily', meetingPrepEnabled: false, meetingPrepTimezone: 'Eastern Standard Time', meetingTranscriptionEnabled: false, meetingTranscriptionHoursLookback: 4 },
+      briefings: { morningTime: '08:00', eveningTime: '18:00', voiceMorning: true, voiceEvening: true, emailMorning: true, emailEvening: true, frequency: 'daily', meetingPrepEnabled: false, meetingPrepTimezone: 'Eastern Standard Time', meetingTranscriptionEnabled: false, meetingTranscriptionHoursLookback: 4, weeklyReviewEnabled: false, weeklyReviewDay: 0, weeklyReviewTime: '18:00' },
       twilio: { phoneNumber: '', whatsappEnabled: false },
       llm: { strategy: 'cloud', cloudModel: 'claude-sonnet-4-20250514', localModel: 'llama3.1:8b' },
       travelAgent: {
@@ -2367,6 +2547,79 @@ export const ConfigDashboard: React.FC = () => {
                 </div>
               </div>
               <div className="mt-4 pt-4 border-t border-gray-700">
+                <h3 className="text-sm font-medium text-gray-300 mb-3">Weekly review</h3>
+                <p className="text-xs text-gray-500 mb-2">Chanakya sends a weekly review: summary of your week, incomplete tasks / follow-ups, and drafted priorities for next week. Uses the same channel data as daily briefings (past 7 days). Delivered to Contact email and WhatsApp.</p>
+                <div className="flex flex-col gap-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.briefings.weeklyReviewEnabled === true}
+                      onChange={(e) => setConfig({ ...config, briefings: { ...config.briefings, weeklyReviewEnabled: e.target.checked }})}
+                      className="rounded border-gray-500 bg-gray-600 text-lobster-500 focus:ring-lobster-500"
+                    />
+                    <span className="text-sm text-gray-400">Send weekly review automatically</span>
+                  </label>
+                  <div className="flex flex-wrap items-center gap-4">
+                    <div>
+                      <label className="config-label">Day</label>
+                      <select
+                        value={config.briefings.weeklyReviewDay ?? 0}
+                        onChange={(e) => setConfig({ ...config, briefings: { ...config.briefings, weeklyReviewDay: parseInt(e.target.value, 10) }})}
+                        className="config-input max-w-[140px]"
+                      >
+                        <option value={0}>Sunday</option>
+                        <option value={1}>Monday</option>
+                        <option value={2}>Tuesday</option>
+                        <option value={3}>Wednesday</option>
+                        <option value={4}>Thursday</option>
+                        <option value={5}>Friday</option>
+                        <option value={6}>Saturday</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="config-label">Time</label>
+                      <input
+                        type="time"
+                        value={config.briefings.weeklyReviewTime ?? '18:00'}
+                        onChange={(e) => setConfig({ ...config, briefings: { ...config.briefings, weeklyReviewTime: e.target.value }})}
+                        className="config-input"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <button
+                      type="button"
+                      disabled={sendingWeeklyReview}
+                      onClick={async () => {
+                        setSendingWeeklyReview(true);
+                        setWeeklyReviewResult(null);
+                        try {
+                          const res = await fetch('/api/chanakya/weekly-review', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+                          const data = await res.json();
+                          const ok = res.ok && data.success;
+                          setWeeklyReviewResult({ success: ok, message: data.message, email: data.email, whatsapp: data.whatsapp, error: data.error });
+                          if (ok) setMessage({ type: 'success', text: data.message ?? 'Weekly review sent.' });
+                          else setMessage({ type: 'error', text: data.error || data.message || 'Failed.' });
+                        } catch (e) {
+                          setWeeklyReviewResult({ success: false, error: 'Request failed. Is the backend running?' });
+                          setMessage({ type: 'error', text: 'Could not reach backend.' });
+                        }
+                        setTimeout(() => setMessage(null), 8000);
+                        setSendingWeeklyReview(false);
+                      }}
+                      className="btn-primary text-sm py-2 px-4"
+                    >
+                      {sendingWeeklyReview ? 'Sending…' : 'Send weekly review now'}
+                    </button>
+                    {weeklyReviewResult && (
+                      <span className={`text-sm ${weeklyReviewResult.success ? 'text-green-400' : 'text-amber-400'}`}>
+                        {weeklyReviewResult.success ? (weeklyReviewResult.message ?? 'Sent.') : (weeklyReviewResult.error || weeklyReviewResult.message)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 pt-4 border-t border-gray-700">
                 <h3 className="text-sm font-medium text-gray-300 mb-3">Email briefings</h3>
                 <p className="text-xs text-gray-500 mb-3">Sent to the email in General → Contact. Requires email configured (SendGrid or Gmail/Outlook in .env).</p>
                 <div className="flex flex-wrap gap-6">
@@ -2838,6 +3091,73 @@ export const ConfigDashboard: React.FC = () => {
                       className="config-input w-full"
                     />
                   </div>
+                </div>
+
+                {/* Flight price monitoring: monitor trips, history, AI recommends buy, alert WhatsApp + email */}
+                <div className="mt-6 pt-6 border-t border-gray-700">
+                  <h4 className="text-sm text-amber-400 font-semibold mb-3">Flight price monitoring</h4>
+                  <p className="text-xs text-gray-500 mb-3">Monitor ticket prices for trips you plan. Henry checks prices on a schedule, uses history + AI to recommend when to buy, and alerts you via WhatsApp and email when it thinks the price is the lowest.</p>
+                  <p className="text-xs text-gray-500 mb-2">For <strong>real</strong> flight prices, add Amadeus API credentials (free tier at <a href="https://developers.amadeus.com" target="_blank" rel="noopener noreferrer" className="text-amber-400 underline">developers.amadeus.com</a>). Trips need origin and destination as 3-letter IATA codes (e.g. EWR, LIS).</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                    <div>
+                      <label className="config-label">Amadeus API Key</label>
+                      <input
+                        type="password"
+                        autoComplete="off"
+                        placeholder="Optional — leave blank for mock prices"
+                        value={config.travelAgent?.amadeusApiKey ?? ''}
+                        onChange={(e) => setConfig({
+                          ...config,
+                          travelAgent: { ...(config.travelAgent || {}), amadeusApiKey: e.target.value },
+                        })}
+                        className="config-input w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="config-label">Amadeus API Secret</label>
+                      <input
+                        type="password"
+                        autoComplete="off"
+                        placeholder="Optional"
+                        value={config.travelAgent?.amadeusApiSecret ?? ''}
+                        onChange={(e) => setConfig({
+                          ...config,
+                          travelAgent: { ...(config.travelAgent || {}), amadeusApiSecret: e.target.value },
+                        })}
+                        className="config-input w-full"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-4 mb-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config.travelAgent?.priceMonitorEnabled === true}
+                        onChange={(e) => setConfig({
+                          ...config,
+                          travelAgent: { ...(config.travelAgent || {}), priceMonitorEnabled: e.target.checked, priceMonitorIntervalHours: config.travelAgent?.priceMonitorIntervalHours ?? 6 },
+                        })}
+                        className="rounded border-gray-500 bg-gray-600 text-lobster-500 focus:ring-lobster-500"
+                      />
+                      <span className="text-sm text-white">Enable price monitoring</span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-gray-400">Check every</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={24}
+                        value={config.travelAgent?.priceMonitorIntervalHours ?? 6}
+                        onChange={(e) => setConfig({
+                          ...config,
+                          travelAgent: { ...(config.travelAgent || {}), priceMonitorIntervalHours: Math.max(1, Math.min(24, parseInt(e.target.value, 10) || 6)) },
+                        })}
+                        className="config-input w-16"
+                      />
+                      <span className="text-sm text-gray-400">hours</span>
+                    </div>
+                  </div>
+                  <HenryPriceMonitorTrips enabled={config.travelAgent?.enabled ?? false} />
                 </div>
               </div>
               <div className="mt-6 flex justify-end">

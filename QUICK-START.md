@@ -1,97 +1,118 @@
-# Quick Start Guide
+# Quick Start - Get Your AI Advisor Running in 10 Minutes
 
-## Option 1: Automated Installation (Recommended)
+## ✅ What You Need:
 
-1. **Install Node.js** (if not already installed):
-   - Download from: https://nodejs.org/
-   - Install the LTS (Long Term Support) version
-   - Restart your computer after installation
+1. **Twilio Account** (free trial, $15 credit)
+2. **Your phone: +18556406324** (already configured!)
+3. **10 minutes**
 
-2. **Run the installation script**:
-   - Double-click `install-and-run.bat`
-   - The script will automatically:
-     - Check for Node.js
-     - Install all dependencies
-     - Start the development server
-     - Open the app in your browser
+---
 
-## Option 2: Manual Installation
+## 🚀 Setup Steps
 
-Open PowerShell or Command Prompt in this folder and run:
+### 1. Sign Up for Twilio (2 min)
 
-```powershell
-# Install dependencies
-npm install
+Go to: **https://www.twilio.com/try-twilio**
 
-# Start the development server
-npm run dev
+- Email: deepesh.vellore@jerseytechpartners.com
+- Verify your phone: +18556406324
+
+### 2. Get Credentials (1 min)
+
+In Twilio Console, copy:
+- **Account SID** (starts with AC...)
+- **Auth Token** (click eye icon to reveal)
+- **Phone Number** (click "Get a trial phone number")
+
+### 3. Enable WhatsApp (2 min)
+
+1. Go to: **Messaging** → **Try it out** → **Send a WhatsApp message**
+2. You'll see: "Send **join [code]** to **+1 415 523 8886**"
+3. **On your iPhone**, open WhatsApp
+4. Start a chat with: **+1 415 523 8886**
+5. Send: **"join [your-code]"** (use the code from Twilio)
+6. You'll get: "You are all set!"
+
+### 4. Configure Backend (2 min)
+
+Open: `c:\Users\deepe\strategic-coworker-app\.env.backend`
+
+Update these lines:
+```env
+TWILIO_ACCOUNT_SID=AC...your_sid_here...
+TWILIO_AUTH_TOKEN=your_auth_token_here
+TWILIO_PHONE_NUMBER=+1234567890  # Your Twilio number
 ```
 
-Then open your browser to: http://localhost:5173
+**Save the file.**
 
-## Option 3: Testing Without Build (Standalone HTML)
+### 5. Start the Service (1 min)
 
-If you want to preview the UI design without installing anything:
+```batch
+cd c:\Users\deepe\strategic-coworker-app
+.\START-BACKEND.bat
+```
 
-1. Open `standalone-demo.html` in your web browser
-2. This version has limited functionality but shows the UI design
+Keep this window open!
 
-Note: The standalone version uses mock data and doesn't have full React functionality.
+### 6. Test It! (2 min)
 
-## What You'll See
+**On your iPhone**, in WhatsApp (to +1 415 523 8886):
 
-### Chat Interface
-- Conversational AI assistant
-- Ask questions like:
-  - "What are my priorities today?"
-  - "Summarize my unread emails"
-  - "What should I focus on next?"
+1. Type: **"hello"**
+2. Wait 5-10 seconds
+3. You should get an AI response!
 
-### Dashboard
-- Connected communication channels
-- Priority task list
-- AI-generated insights
-- Real-time sync status
+Try:
+- **"brief"** - Current status
+- **"critical"** - Urgent items
+- **"call"** - Request voice briefing
+- **Any question** - AI will answer
 
-### Settings
-- Connect/disconnect channels
-- Configure AI preferences
-- Manage integrations
+---
 
-## Troubleshooting
+## ✅ Success!
 
-### "npm is not recognized"
-- Node.js is not installed or not in your PATH
-- Install Node.js from https://nodejs.org/
-- Restart your terminal/computer after installation
+You now have a 24/7 AI advisor that:
+- ✅ Monitors all channels every 15 minutes
+- ✅ Sends WhatsApp alerts for urgent items
+- ✅ Sends SMS for critical issues only
+- ✅ Emails daily summaries (8 AM & 6 PM)
+- ✅ Makes voice calls for emergencies
+- ✅ Responds to your WhatsApp questions 24/7
 
-### Port 5173 already in use
-- Another application is using this port
-- Vite will automatically use the next available port
-- Check the terminal output for the actual URL
+---
 
-### Installation fails
-- Check your internet connection
-- Try running as Administrator
-- Delete `node_modules` folder and try again
+## 🔄 Daily Operation
 
-### TypeScript errors
-- Make sure all dependencies installed correctly
-- Run `npm install` again
+### Keep the laptop:
+- ✅ Plugged in
+- ✅ Connected to internet
+- ✅ Backend service running (START-BACKEND.bat window open)
 
-## Next Steps
+### You can:
+- Text questions via WhatsApp anytime
+- Get proactive alerts for urgent issues
+- Receive daily email summaries
+- Request voice briefings on demand
 
-1. ✅ Get the app running
-2. Explore the chat interface
-3. Check out the dashboard
-4. Review the Settings page
-5. Read `README.md` for customization options
-6. See `SETUP.md` for integration details
+---
 
-## Need Help?
+## 📱 Your Setup:
 
-- Check `SETUP.md` for detailed setup instructions
-- Review `README.md` for feature documentation
-- Look at the source code in `src/` folder
+- **Your Phone:** +18556406324
+- **WhatsApp To:** +1 415 523 8886 (Twilio sandbox)
+- **Email:** deepesh.vellore@jerseytechpartners.com
+- **Backend:** Running on laptop 24/7
 
-Enjoy your Strategic Coworker! 🚀
+---
+
+## 🆘 Need Help?
+
+If something doesn't work:
+1. Check `.env.backend` has correct credentials
+2. Make sure WhatsApp sandbox is joined
+3. Check backend logs for errors
+4. Restart: `.\START-BACKEND.bat`
+
+**Questions?** Just ask! I'm here to help get this running.

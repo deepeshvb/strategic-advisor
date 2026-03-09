@@ -18,7 +18,7 @@ interface OllamaConfig {
 class LocalLLMService {
   private config: OllamaConfig = {
     baseUrl: 'http://localhost:11434',
-    model: 'llama3.1:70b', // Default high-performance model
+    model: 'llama3.1:8b', // Default; use a model from ollama list
     temperature: 0.7,
     maxTokens: 4000,
   };
@@ -211,8 +211,17 @@ export const RECOMMENDED_MODELS = [
     performance: 'Excellent',
     speed: 'Moderate',
     ram: '48GB+',
-    description: 'Best strategic reasoning and analysis',
-    recommended: true,
+    description: 'Best strategic reasoning (run: ollama pull llama3.1:70b)',
+    recommended: false,
+  },
+  {
+    name: 'gpt-oss:120b',
+    size: '65GB',
+    performance: 'Excellent',
+    speed: 'Slower',
+    ram: '64GB+',
+    description: 'Large model if you have the RAM',
+    recommended: false,
   },
   {
     name: 'llama3.1:8b',

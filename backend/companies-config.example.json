@@ -1,0 +1,37 @@
+{
+  "companies": [
+    {
+      "id": "1",
+      "name": "Othain Group",
+      "domain": "othaingroup.com",
+      "channels": {
+        "teams": {
+          "enabled": true,
+          "azureAppId": "YOUR_APP_ID",
+          "clientSecret": "YOUR_CLIENT_SECRET",
+          "tenantId": "YOUR_TENANT_ID"
+        },
+        "email": {
+          "enabled": true,
+          "provider": "outlook",
+          "adminEmail": "strategic-monitor@othaingroup.com",
+          "appPassword": "YOUR_APP_PASSWORD",
+          "exchangeServer": "outlook.office365.com"
+        },
+        "sharepoint": {
+          "enabled": true,
+          "sharePointUrl": "https://othaingroup.sharepoint.com",
+          "azureAppId": "YOUR_APP_ID",
+          "clientSecret": "YOUR_CLIENT_SECRET",
+          "tenantId": "YOUR_TENANT_ID"
+        },
+        "calendar": {
+          "enabled": true,
+          "azureAppId": "YOUR_APP_ID",
+          "clientSecret": "YOUR_CLIENT_SECRET",
+          "tenantId": "YOUR_TENANT_ID"
+        }
+      }
+    }
+  ]
+}

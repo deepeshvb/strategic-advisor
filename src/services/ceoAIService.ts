@@ -308,37 +308,97 @@ export async function generateCEOResponse(
   }
   
   try {
-    console.log('🚀 Initializing Claude Sonnet 4.5...');
+    console.log('🚀 Calling Claude API directly with fetch...');
     console.log('📊 Context size:', contextPrompt.length, 'characters');
     
-    const anthropic = new Anthropic({
-      apiKey: apiKey,
-      dangerouslyAllowBrowser: true, // Required for browser/Vite environments
-    });
-
     console.log('📡 Sending request to Claude API...');
     const startTime = Date.now();
 
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 4000,
-      temperature: 0.7,
-      system: CEO_SYSTEM_PROMPT,
-      messages: [
-        {
-          role: 'user',
-          content: `${contextPrompt}\n\n---\n\nCEO Question: ${userMessage}`,
-        },
-      ],
+    // Use proxy to avoid CORS issues
+    const response = await fetch('/api/claude/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-dangerous-direct-browser-access': 'true', // Required for browser requests
+      },
+      body: JSON.stringify({
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: 4000,
+        temperature: 0.7,
+        system: CEO_SYSTEM_PROMPT,
+        messages: [
+          {
+            role: 'user',
+            content: `${contextPrompt}\n\n---\n\nCEO Question: ${userMessage}`,
+          },
+        ],
+      }),
     });
 
     const elapsed = Date.now() - startTime;
     console.log(`✅ Response received in ${elapsed}ms`);
+    console.log('📦 Response status:', response.status, response.statusText);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`API error ${response.status}: ${errorText}`);
+    }
+    
+    const message = await response.json();
+    console.log('📦 Full API response structure:', JSON.stringify(message, null, 2));
+
+    // Safe content extraction with proper error handling
+    let responseContent = '';
+    let debugInfo = '';
+    
+    console.log('🔍 Debugging content extraction:');
+    console.log('  - message exists:', !!message);
+    console.log('  - message.content exists:', !!message.content);
+    console.log('  - message.content is array:', Array.isArray(message.content));
+    console.log('  - message.content length:', message.content?.length);
+    
+    // Build debug info for UI display
+    debugInfo += `\n🔍 Debug Info:\n`;
+    debugInfo += `- API Response received: ✅\n`;
+    debugInfo += `- Response time: ${elapsed}ms\n`;
+    debugInfo += `- message exists: ${!!message}\n`;
+    debugInfo += `- message.content exists: ${!!message.content}\n`;
+    debugInfo += `- message.content is array: ${Array.isArray(message.content)}\n`;
+    debugInfo += `- message.content length: ${message.content?.length || 0}\n`;
+    
+    if (message.content && Array.isArray(message.content) && message.content.length > 0) {
+      const firstContent = message.content[0];
+      console.log('  - firstContent type:', firstContent?.type);
+      console.log('  - firstContent has text:', !!firstContent?.text);
+      
+      debugInfo += `- firstContent type: ${firstContent?.type}\n`;
+      debugInfo += `- firstContent has text: ${!!firstContent?.text}\n`;
+      
+      if (firstContent && firstContent.type === 'text' && firstContent.text) {
+        responseContent = firstContent.text;
+        console.log('✅ Successfully extracted response text');
+        debugInfo += `- ✅ Text extracted successfully!\n`;
+      } else {
+        console.warn('⚠️ Content exists but not in expected format');
+        console.warn('  firstContent:', JSON.stringify(firstContent));
+        debugInfo += `- ⚠️ Content format unexpected\n`;
+        debugInfo += `- firstContent: ${JSON.stringify(firstContent, null, 2)}\n`;
+        responseContent = `No response - Content format issue.\n${debugInfo}`;
+      }
+    } else {
+      console.error('❌ Content array is empty or missing');
+      console.error('  message.content:', message.content);
+      debugInfo += `- ❌ Content array empty or missing\n`;
+      debugInfo += `- message.content: ${JSON.stringify(message.content, null, 2)}\n`;
+      debugInfo += `- Full message: ${JSON.stringify(message, null, 2)}\n`;
+      responseContent = `No response - Empty content array.\n${debugInfo}`;
+    }
 
     return {
       id: `msg-${Date.now()}`,
       role: 'assistant',
-      content: message.content[0].type === 'text' ? message.content[0].text : 'No response',
+      content: responseContent,
       timestamp: new Date(),
       metadata: {
         sources: ['Teams', 'Email', 'Calendar'],
@@ -349,12 +409,24 @@ export async function generateCEOResponse(
     console.error('Error details:', {
       message: error instanceof Error ? error.message : 'Unknown',
       type: error instanceof Error ? error.constructor.name : typeof error,
+      stack: error instanceof Error ? error.stack : undefined,
+      fullError: JSON.stringify(error, Object.getOwnPropertyNames(error)),
     });
+    
+    // Check if it's a CORS error
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    let troubleshootingMsg = '';
+    
+    if (errorMsg.includes('CORS') || errorMsg.includes('Access-Control') || errorMsg.includes('Failed to fetch')) {
+      troubleshootingMsg = `\n\n🔧 CORS Issue Detected:\nThe browser is blocking the request to Claude API.\n\nThis happens because:\n- Direct API calls from browser to Claude are blocked by CORS policy\n- You need a backend proxy server to make Claude API calls\n\n✅ Solution: Use Local LLM instead:\n1. Go to Settings → LLM Selection\n2. Select "Local Only"\n3. Install Ollama if not already installed`;
+    } else {
+      troubleshootingMsg = `\n\nTroubleshooting:\n1. Check browser console (F12) for detailed error\n2. Verify .env file has correct API key\n3. Restart dev server (Ctrl+C then npm run dev)\n4. Check Anthropic API status: https://status.anthropic.com\n\nFull error: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`;
+    }
     
     return {
       id: `msg-${Date.now()}`,
       role: 'assistant',
-      content: `Error connecting to Claude AI: ${error instanceof Error ? error.message : JSON.stringify(error)}\n\nTroubleshooting:\n1. Check browser console (F12) for detailed error\n2. Verify .env file has correct API key\n3. Restart dev server (Ctrl+C then npm run dev)\n4. Check Anthropic API status: https://status.anthropic.com`,
+      content: `Error connecting to Claude AI: ${errorMsg}${troubleshootingMsg}`,
       timestamp: new Date(),
     };
   }

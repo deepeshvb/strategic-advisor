@@ -11,8 +11,8 @@ echo ✅ Stopped
 
 echo.
 echo Step 2: Starting Voice API Server (port 3001)...
-start "Voice API" cmd /k "cd /d %~dp0 && node voice-server.js"
-timeout /t 3 >nul
+start "Voice API" cmd /k "cd /d %~dp0 && node voice-server.cjs"
+timeout /t 4 /nobreak >nul
 echo ✅ Started
 
 echo.
@@ -23,8 +23,14 @@ echo ✅ Started
 
 echo.
 echo Step 4: Testing Voice API...
-curl http://localhost:3001/api/voice/health
-echo.
+timeout /t 2 /nobreak >nul
+curl -s -m 5 http://localhost:3001/api/voice/health
+if errorlevel 1 (
+  echo.
+  echo ⚠ Voice API not responding yet. Check the "Voice API" window for errors.
+) else (
+  echo.
+)
 
 echo.
 echo ============================================
