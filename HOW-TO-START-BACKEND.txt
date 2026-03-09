@@ -1,0 +1,21 @@
+============================================
+  HOW TO START THE BACKEND (after reboot)
+============================================
+
+Do this and nothing else:
+
+  1. Right-click START-BACKEND.bat
+  2. Click "Run as administrator"
+  3. If Windows asks to allow changes, click Yes
+  4. Wait until a NEW window opens that says:
+     "Backend server running on port 3000"
+  5. Leave that window open. You're done.
+
+Use ONLY START-BACKEND.bat to start the backend.
+Do not double-click any other "start" or "restart" script.
+
+If you still see "all ports in use":
+  - Restart the PC
+  - Then do steps 1-5 above (START-BACKEND.bat as administrator)
+
+============================================

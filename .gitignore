@@ -38,3 +38,7 @@ dist-ssr
 .env.backend
 .env.local
 .env.*.local
+
+# Secrets and local config (use *-example or env)
+backend/companies-config.json
+last-voice-sent.ogg

@@ -1,0 +1,18 @@
+========================================
+  PRODUCTION WEBHOOK - ACTIVE 24/7
+========================================
+
+WhatsApp (Twilio):
+  Webhook: https://webhook.lobstermoltys.com/webhook/whatsapp
+  Steps: Twilio Console → WhatsApp sandbox → Set URL above → Save
+  Send to: +1 415 523 8886
+
+Agent Email (requires SendGrid Inbound Parse setup):
+  Webhook: https://webhook.lobstermoltys.com/webhook/email
+  After setup: agent@parse.lobstermoltys.com (or your configured address)
+  See: EMAIL-AGENT-SETUP.md for full setup steps
+
+Backend + tunnel run as Windows services. Watchdog restarts on
+network disconnect/reconnect. See DEPLOYMENT-24-7-GUIDE.md
+
+========================================

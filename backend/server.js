@@ -2794,6 +2794,13 @@ app.get('/api/config', (req, res) => {
       priceMonitorIntervalHours: Math.max(1, Math.min(24, parseInt(cfg?.travelAgent?.priceMonitorIntervalHours, 10) || 6)),
       amadeusApiKey: cfg?.travelAgent?.amadeusApiKey ?? process.env.AMADEUS_API_KEY ?? '',
       amadeusApiSecret: cfg?.travelAgent?.amadeusApiSecret ? '••••••••' : '',
+    },
+    starkNavigator: {
+      enabled: cfg?.starkNavigator?.enabled === true,
+      criteria: cfg?.starkNavigator?.criteria ?? '',
+      dailyScheduleEnabled: cfg?.starkNavigator?.dailyScheduleEnabled === true,
+      dailyScheduleTime: cfg?.starkNavigator?.dailyScheduleTime ?? '08:00',
+      hotAlertEnabled: cfg?.starkNavigator?.hotAlertEnabled !== false,
     }
   });
 });
@@ -2812,6 +2819,189 @@ app.post('/api/config', express.json(), (req, res) => {
     res.json({ success: true, message: 'Configuration saved. Admin email will be used for briefings.' });
   } catch (e) {
     console.error('Config save failed:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ----- StarkNavigator: evaluate investments and big purchases (stocks, cars, wine, real estate, etc.) against criteria; daily digest + hot alerts -----
+const STARK_NAVIGATOR_PROMPT = `You are StarkNavigator, an advisor for both investments (e.g. stocks) and big purchases (cars, wine, real estate, art, luxury goods, etc.). Given the user's criteria and a list of opportunities, evaluate each and recommend: buy, hold, or skip. For any you mark as strong buy or exceptional deal, set "hot": true so the user gets an instant alert.
+Reply with ONLY a valid JSON object (no other text) in this exact shape:
+{"recommendations":[{"symbol":"AAPL","name":"Apple Inc","action":"buy|hold|skip","reason":"one short sentence","hot":true|false}]}
+Use "symbol" and "name" for the opportunity (for stocks use ticker/company name; for other items use a short id and description). Use "hot": true only for 1–2 items that are exceptional based on the user's criteria. Be conservative.`;
+
+const STARK_NAVIGATOR_BIG_PURCHASE_PROMPT = `You are StarkNavigator, an advisor for big purchases (cars, wine, real estate, art, luxury goods, etc.) and investments. Given the user's criteria and a description of one specific opportunity they are considering, recommend: buy, hold, or skip. Give a clear reason. If this is an exceptional deal that matches their criteria and they should act soon, set "hot": true so they get an instant alert.
+Reply with ONLY a valid JSON object (no other text):
+{"action":"buy|hold|skip","reason":"2-3 sentences","hot":true|false}`;
+
+// Mock stock scan: replace with Alpha Vantage / Yahoo / real API when key is configured
+async function fetchStarkStockData() {
+  const apiKey = process.env.ALPHA_VANTAGE_API_KEY || process.env.STARK_STOCK_API_KEY;
+  const symbols = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'JPM', 'V', 'JNJ'];
+  if (apiKey && typeof fetch === 'function') {
+    try {
+      const res = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=AAPL&apikey=${apiKey}`);
+      if (!res.ok) return getMockStarkStockData(symbols);
+      const data = await res.json();
+      if (data['Global Quote'] && data['Global Quote']['05. price']) {
+        const out = [];
+        for (const sym of symbols.slice(0, 5)) {
+          const r = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${sym}&apikey=${apiKey}`);
+          const d = await r.json();
+          const q = d['Global Quote'];
+          if (q && q['05. price']) out.push({ symbol: sym, name: sym, price: parseFloat(q['05. price']), changePercent: parseFloat(q['10. change percent']) || 0 });
+        }
+        if (out.length) return out;
+      }
+    } catch (e) {
+      console.warn('StarkNavigator: Alpha Vantage fetch failed, using mock:', e.message);
+    }
+  }
+  return getMockStarkStockData(symbols);
+}
+
+function getMockStarkStockData(symbols) {
+  const names = { AAPL: 'Apple Inc', MSFT: 'Microsoft', GOOGL: 'Alphabet', AMZN: 'Amazon', NVDA: 'NVIDIA', META: 'Meta', TSLA: 'Tesla', JPM: 'JPMorgan', V: 'Visa', JNJ: 'Johnson & Johnson' };
+  const now = Date.now();
+  return symbols.map((s, i) => {
+    const seed = (now % 1000) + i * 17;
+    const price = 150 + (seed % 400);
+    const ch = (seed % 20) - 8;
+    return { symbol: s, name: names[s] || s, price, changePercent: ch * 0.5 };
+  });
+}
+
+async function runStarkRecommendations(opts = {}) {
+  const cfg = loadConfig();
+  const criteria = (cfg?.starkNavigator?.criteria || '').trim() || 'General: focus on value and growth; moderate risk tolerance.';
+  const data = await fetchStarkStockData();
+  const dataStr = JSON.stringify(data, null, 2);
+  const prompt = `User criteria:\n${criteria}\n\nCurrent opportunities (from scan):\n${dataStr}\n\nEvaluate each against the criteria. Output ONLY the JSON object with recommendations array (action: buy/hold/skip, reason, hot: true only for exceptional immediate buys).`;
+  let text;
+  try {
+    text = await askAI(prompt, '', { systemPrompt: STARK_NAVIGATOR_PROMPT });
+  } catch (e) {
+    console.warn('StarkNavigator AI failed:', e.message);
+    return { recommendations: [], error: e.message };
+  }
+  const jsonMatch = (text || '').match(/\{[\s\S]*\}/);
+  let recommendations = [];
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      recommendations = Array.isArray(parsed.recommendations) ? parsed.recommendations : [];
+    } catch (_) {}
+  }
+  const hot = recommendations.filter((r) => r.hot === true);
+  const adminEmail = getAdminEmail();
+  const adminWhatsApp = getAdminWhatsAppNumber();
+  const hotAlertEnabled = opts.sendHotAlerts !== false && cfg?.starkNavigator?.hotAlertEnabled !== false;
+  if (hotAlertEnabled && hot.length > 0 && (adminEmail || adminWhatsApp)) {
+    const hotList = hot.map((r) => `${r.symbol} (${r.name}): ${r.action} – ${r.reason || 'Strong opportunity'}`).join('\n');
+    const msg = `🔥 StarkNavigator – Immediate buy alert\n\n${hotList}\n\nFull daily digest will be sent at scheduled time.`;
+    if (adminEmail && (useSendGrid || emailTransporter)) {
+      await sendEmailReply(adminEmail, 'StarkNavigator – Hot buy alert', msg);
+      console.log('📧 StarkNavigator: hot alert sent by email');
+    }
+    if (adminWhatsApp && twilioClient) {
+      const shortMsg = msg.length > 1400 ? msg.slice(0, 1380) + '\n\n… Full details in email.' : msg;
+      try {
+        await sendWhatsApp(shortMsg, false, `whatsapp:${String(adminWhatsApp).replace(/^\+/, '').replace(/^whatsapp:/i, '')}`);
+        console.log('📱 StarkNavigator: hot alert sent by WhatsApp');
+      } catch (e) {
+        console.warn('StarkNavigator WhatsApp hot alert failed:', e.message);
+      }
+    }
+  }
+  return { recommendations, hot };
+}
+
+app.post('/api/stark-navigator/recommendations', express.json(), async (req, res) => {
+  try {
+    const result = await runStarkRecommendations({ sendHotAlerts: true });
+    res.json({ success: true, recommendations: result.recommendations || [], hot: result.hot || [], error: result.error || null });
+  } catch (e) {
+    console.error('StarkNavigator recommendations error:', e.message);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// Evaluate a single big purchase (car, wine, real estate, etc.) against user criteria
+app.post('/api/stark-navigator/evaluate-purchase', express.json(), async (req, res) => {
+  try {
+    const description = (req.body?.description || req.body?.item || '').trim();
+    if (!description) {
+      return res.status(400).json({ success: false, error: 'Provide description (e.g. car, property, wine listing).' });
+    }
+    const cfg = loadConfig();
+    const criteria = (cfg?.starkNavigator?.criteria || '').trim() || 'General: value for money, quality over impulse; moderate risk.';
+    const prompt = `User criteria for big purchases and investments:\n${criteria}\n\nOpportunity they are considering:\n${description}\n\nEvaluate against their criteria. Output ONLY the JSON object with action (buy/hold/skip), reason (2-3 sentences), and hot (true only if exceptional deal, act soon).`;
+    let text;
+    try {
+      text = await askAI(prompt, '', { systemPrompt: STARK_NAVIGATOR_BIG_PURCHASE_PROMPT });
+    } catch (e) {
+      console.warn('StarkNavigator big-purchase AI failed:', e.message);
+      return res.status(500).json({ success: false, error: e.message });
+    }
+    const jsonMatch = (text || '').match(/\{[\s\S]*\}/);
+    let action = 'hold';
+    let reason = 'Unable to evaluate.';
+    let hot = false;
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[0]);
+        action = ['buy', 'hold', 'skip'].includes(parsed.action) ? parsed.action : 'hold';
+        reason = typeof parsed.reason === 'string' ? parsed.reason : reason;
+        hot = parsed.hot === true;
+      } catch (_) {}
+    }
+    const adminEmail = getAdminEmail();
+    const adminWhatsApp = getAdminWhatsAppNumber();
+    const hotAlertEnabled = cfg?.starkNavigator?.hotAlertEnabled !== false;
+    if (hot && hotAlertEnabled && (adminEmail || adminWhatsApp)) {
+      const msg = `🔥 StarkNavigator – Hot deal alert\n\n${description.slice(0, 200)}${description.length > 200 ? '…' : ''}\n\nRecommendation: ${action}\n${reason}`;
+      if (adminEmail && (useSendGrid || emailTransporter)) {
+        await sendEmailReply(adminEmail, 'StarkNavigator – Hot deal alert', msg);
+        console.log('📧 StarkNavigator: big-purchase hot alert sent by email');
+      }
+      if (adminWhatsApp && twilioClient) {
+        const shortMsg = msg.length > 1400 ? msg.slice(0, 1380) + '\n\n… Full details in email.' : msg;
+        try {
+          await sendWhatsApp(shortMsg, false, `whatsapp:${String(adminWhatsApp).replace(/^\+/, '').replace(/^whatsapp:/i, '')}`);
+          console.log('📱 StarkNavigator: big-purchase hot alert sent by WhatsApp');
+        } catch (e) {
+          console.warn('StarkNavigator WhatsApp big-purchase alert failed:', e.message);
+        }
+      }
+    }
+    res.json({ success: true, action, reason, hot });
+  } catch (e) {
+    console.error('StarkNavigator evaluate-purchase error:', e.message);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.post('/api/stark-navigator/daily-send', express.json(), async (req, res) => {
+  try {
+    const result = await runStarkRecommendations({ sendHotAlerts: true });
+    const adminEmail = getAdminEmail();
+    const adminWhatsApp = getAdminWhatsAppNumber();
+    const lines = (result.recommendations || []).map((r) => `• ${r.symbol} (${r.name}): ${r.action} – ${r.reason || ''}${r.hot ? ' [HOT]' : ''}`);
+    const body = `StarkNavigator – Daily recommendations\n\n${lines.length ? lines.join('\n') : 'No recommendations today.'}`;
+    if (adminEmail && (useSendGrid || emailTransporter)) {
+      await sendEmailReply(adminEmail, 'StarkNavigator – Daily recommendations', body);
+    }
+    if (adminWhatsApp && twilioClient && body.length <= 1400) {
+      try {
+        await sendWhatsApp(body, false, `whatsapp:${String(adminWhatsApp).replace(/^\+/, '').replace(/^whatsapp:/i, '')}`);
+      } catch (_) {}
+    } else if (adminWhatsApp && twilioClient) {
+      try {
+        await sendWhatsApp('StarkNavigator – Daily digest sent to your email.', false, `whatsapp:${String(adminWhatsApp).replace(/^\+/, '').replace(/^whatsapp:/i, '')}`);
+      } catch (_) {}
+    }
+    res.json({ success: true, message: 'Daily digest sent.', recommendations: result.recommendations || [] });
+  } catch (e) {
+    console.error('StarkNavigator daily send error:', e.message);
     res.status(500).json({ success: false, error: e.message });
   }
 });
@@ -4360,6 +4550,32 @@ function startMonitoring(boundPort) {
       }
     });
     console.log(`✈️ Henry price monitor: running every ${priceMonitorHours} hour(s); alerts to email + WhatsApp when AI recommends buy.`);
+  }
+
+  // StarkNavigator: daily recommendations at scheduled time; hot buys trigger immediate WhatsApp + email
+  const starkEnabled = cfg?.starkNavigator?.enabled === true;
+  const starkDailyEnabled = cfg?.starkNavigator?.dailyScheduleEnabled === true;
+  if (starkEnabled && starkDailyEnabled) {
+    const starkTime = (cfg?.starkNavigator?.dailyScheduleTime || '08:00').trim();
+    const [starkHour, starkMin] = starkTime.split(':').map((n) => parseInt(n, 10) || 0);
+    cron.schedule(`${starkMin} ${starkHour} * * *`, async () => {
+      try {
+        const result = await runStarkRecommendations({ sendHotAlerts: true });
+        const adminEmail = getAdminEmail();
+        const adminWhatsApp = getAdminWhatsAppNumber();
+        const lines = (result.recommendations || []).map((r) => `• ${r.symbol} (${r.name}): ${r.action} – ${r.reason || ''}${r.hot ? ' [HOT]' : ''}`);
+        const body = `StarkNavigator – Daily recommendations\n\n${lines.length ? lines.join('\n') : 'No recommendations today.'}`;
+        if (adminEmail && (useSendGrid || emailTransporter)) await sendEmailReply(adminEmail, 'StarkNavigator – Daily recommendations', body);
+        if (adminWhatsApp && twilioClient && body.length <= 1400) {
+          try { await sendWhatsApp(body, false, `whatsapp:${String(adminWhatsApp).replace(/^\+/, '').replace(/^whatsapp:/i, '')}`); } catch (_) {}
+        } else if (adminWhatsApp && twilioClient) {
+          try { await sendWhatsApp('StarkNavigator – Daily digest sent to your email.', false, `whatsapp:${String(adminWhatsApp).replace(/^\+/, '').replace(/^whatsapp:/i, '')}`); } catch (_) {}
+        }
+      } catch (e) {
+        console.warn('StarkNavigator daily cron error:', e.message);
+      }
+    });
+    console.log(`📊 StarkNavigator: daily digest at ${starkTime}; hot buys trigger immediate WhatsApp + email.`);
   }
 }
 

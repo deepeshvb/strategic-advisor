@@ -1,0 +1,43 @@
+========================================
+  CLOUDFLARE TUNNEL - SETUP COMPLETE
+========================================
+
+Domain: lobstermoltys.com
+Tunnel: strategic-advisor
+Status: Running
+
+--------------------------------------------------
+  TWILIO WEBHOOK URL (Configure this now):
+--------------------------------------------------
+
+https://webhook.lobstermoltys.com/webhook/whatsapp
+
+1. Go to: https://www.twilio.com/console/sms/whatsapp/sandbox
+2. Set "When a message comes in" to the URL above
+3. Method: POST
+4. Save
+
+--------------------------------------------------
+  TO START TUNNEL IN FUTURE:
+--------------------------------------------------
+
+.\START-CLOUDFLARE-TUNNEL.bat
+
+Or: cloudflared tunnel run strategic-advisor
+
+--------------------------------------------------
+  FILES CREATED:
+--------------------------------------------------
+
+Config: C:\Users\deepe\.cloudflared\config.yml
+Credentials: C:\Users\deepe\.cloudflared\395a6aaf-e6e5-45b0-bec0-665f54be5291.json
+
+--------------------------------------------------
+  ADD MORE AGENTS LATER:
+--------------------------------------------------
+
+cloudflared tunnel route dns strategic-advisor agent2.lobstermoltys.com
+
+Then add ingress rule to config.yml for the new hostname.
+
+========================================

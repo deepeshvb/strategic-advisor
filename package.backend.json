@@ -1,0 +1,29 @@
+{
+  "name": "strategic-advisor-backend",
+  "version": "1.0.0",
+  "description": "24/7 AGI Monitoring Service with WhatsApp, SMS, Email, and Voice Alerts",
+  "main": "backend/server.js",
+  "type": "module",
+  "scripts": {
+    "start:backend": "node --loader ts-node/esm backend/server.ts",
+    "dev:backend": "nodemon --exec node --loader ts-node/esm backend/server.ts",
+    "build:backend": "tsc -p backend/tsconfig.json",
+    "install-service": "node backend/scripts/install-service.js",
+    "test:twilio": "node --loader ts-node/esm backend/scripts/test-twilio.ts"
+  },
+  "dependencies": {
+    "twilio": "^5.3.5",
+    "@sendgrid/mail": "^8.1.4",
+    "nodemailer": "^6.9.16",
+    "node-cron": "^3.0.3",
+    "sqlite3": "^5.1.7",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "winston": "^3.17.0"
+  },
+  "devDependencies": {
+    "@types/node-cron": "^3.0.11",
+    "nodemon": "^3.1.9",
+    "ts-node": "^10.9.2"
+  }
+}

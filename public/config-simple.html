@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Strategic Advisor - Channel Config</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: #111827; color: #fff; min-height: 100vh; padding: 24px; }
+    h1 { color: #22c55e; margin-bottom: 8px; }
+    .sub { color: #9ca3af; margin-bottom: 24px; }
+    section { background: #1f2937; padding: 20px; border-radius: 8px; margin-bottom: 16px; max-width: 600px; }
+    label { display: block; margin-bottom: 4px; color: #d1d5db; font-size: 14px; }
+    input { width: 100%; padding: 10px; background: #374151; border: 1px solid #4b5563; border-radius: 6px; color: #fff; font-size: 16px; margin-bottom: 16px; }
+    button { background: #22c55e; color: #111; border: none; padding: 12px 24px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 16px; }
+    button:hover { background: #16a34a; }
+    .msg { padding: 12px; border-radius: 6px; margin-top: 16px; }
+    .msg.ok { background: #14532d; color: #86efac; }
+    .msg.err { background: #7f1d1d; color: #fca5a5; }
+    .note { color: #6b7280; font-size: 13px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Strategic AI Advisor</h1>
+  <p class="sub">Channel Configuration</p>
+
+  <section>
+    <h2 style="margin-top:0;font-size:18px">Contact Information</h2>
+    <label>Your Email (for briefings)</label>
+    <input type="email" id="email" placeholder="you@company.com">
+    <label>Phone Number</label>
+    <input type="text" id="phone" placeholder="+1234567890">
+    <label>WhatsApp Number</label>
+    <input type="text" id="whatsapp" placeholder="whatsapp:+1234567890">
+  </section>
+
+  <section>
+    <h2 style="margin-top:0;font-size:18px">Briefing Times</h2>
+    <label>Morning Briefing</label>
+    <input type="time" id="morning" value="08:00">
+    <label>Evening Summary</label>
+    <input type="time" id="evening" value="18:00">
+  </section>
+
+  <button onclick="loadConfig()">Load Config</button>
+  <button onclick="saveConfig()">Save Config</button>
+  <div id="msg"></div>
+  <p class="note">Backend must be running on port 3000. Start with: START-BACKEND.bat</p>
+
+  <script>
+    const API = '/api/config';
+    function show(m, ok) {
+      const el = document.getElementById('msg');
+      el.className = 'msg ' + (ok ? 'ok' : 'err');
+      el.textContent = m;
+      el.style.display = 'block';
+    }
+    async function loadConfig() {
+      try {
+        const r = await fetch(API);
+        const d = await r.json();
+        document.getElementById('email').value = d.ceo?.email || '';
+        document.getElementById('phone').value = d.ceo?.phoneNumber || '';
+        document.getElementById('whatsapp').value = d.ceo?.whatsappNumber || '';
+        document.getElementById('morning').value = d.briefings?.morningTime || '08:00';
+        document.getElementById('evening').value = d.briefings?.eveningTime || '18:00';
+        show('Config loaded', true);
+      } catch (e) {
+        show('Backend not reachable. Start backend on port 3000.', false);
+      }
+    }
+    async function saveConfig() {
+      try {
+        const r = await fetch(API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ceo: { email: document.getElementById('email').value, phoneNumber: document.getElementById('phone').value, whatsappNumber: document.getElementById('whatsapp').value },
+            briefings: { morningTime: document.getElementById('morning').value, eveningTime: document.getElementById('evening').value },
+            monitoring: {}, twilio: {}, llm: {}
+          })
+        });
+        const d = await r.json();
+        show(d.message || 'Saved', d.success);
+      } catch (e) {
+        show('Failed to save: ' + e.message, false);
+      }
+    }
+    loadConfig();
+  </script>
+</body>
+</html>

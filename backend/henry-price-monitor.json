@@ -1,0 +1,41 @@
+{
+  "monitoredTrips": [
+    {
+      "id": "trip_1773069500885_oyde5ex",
+      "origin": "JFK",
+      "destination": "Lisbon",
+      "startDate": "2026-09-22",
+      "endDate": "2026-09-29",
+      "travelers": 2,
+      "cabinClass": "ECONOMY",
+      "currency": "USD",
+      "enabled": true,
+      "createdAt": "2026-03-09T15:18:20.885Z"
+    }
+  ],
+  "priceHistory": {
+    "trip_1773069500885_oyde5ex": [
+      {
+        "at": "2026-03-09T15:18:33.585Z",
+        "price": 1225,
+        "currency": "USD",
+        "recommendation": {
+          "recommendBuy": false,
+          "reason": "Current price is above typical lows and may drop further.",
+          "confidence": "medium"
+        }
+      },
+      {
+        "at": "2026-03-09T16:00:04.892Z",
+        "price": 1225,
+        "currency": "USD",
+        "recommendation": {
+          "recommendBuy": false,
+          "reason": "Current price is at the minimum observed so far, but there's only one data point to confirm if this is a typical low.",
+          "confidence": "medium"
+        }
+      }
+    ]
+  },
+  "updatedAt": "2026-03-09T16:01:54.842Z"
+}

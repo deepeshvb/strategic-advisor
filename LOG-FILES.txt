@@ -1,0 +1,22 @@
+Log files in this folder (open and copy when reporting errors)
+============================================================
+
+voice-transcription-error.log
+  Latest voice note transcription error (overwritten each time).
+  Copy everything and paste when reporting transcription failures.
+
+webhook-errors.log
+  Webhook/WhatsApp/SMS send errors and other webhook failures.
+  Append-only; check the last entries for recent errors.
+
+webhook-requests.log
+  Incoming webhook requests (e.g. WhatsApp messages, NumMedia, MediaUrl0).
+  Useful to confirm voice notes are being received.
+
+webhook-debug.log
+  Raw request keys when voice detection fails.
+  Only written when the backend couldn't detect a voice note.
+
+last-voice-sent.ogg / last-voice-sent.mp3 / last-voice-sent.wav
+  Copy of the exact file sent to the transcription API (overwritten each voice note).
+  You can try uploading this file at platform.openai.com to test if it's valid.

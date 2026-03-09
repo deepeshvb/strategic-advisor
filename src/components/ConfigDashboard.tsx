@@ -24,10 +24,13 @@ import {
   Calendar,
   Bell,
   LayoutDashboard,
-  Beer
+  Beer,
+  TrendingUp,
+  Zap,
 } from 'lucide-react';
 import { LobsterBackground } from './LobsterBackground';
 import BeerMule from './BeerMule';
+import StarkNavigator from './StarkNavigator';
 
 interface Config {
   ceo: {
@@ -84,6 +87,13 @@ interface Config {
     priceMonitorIntervalHours?: number;
     amadeusApiKey?: string;
     amadeusApiSecret?: string;
+  };
+  starkNavigator?: {
+    enabled: boolean;
+    criteria: string;
+    dailyScheduleEnabled: boolean;
+    dailyScheduleTime: string;
+    hotAlertEnabled: boolean;
   };
 }
 
@@ -1372,6 +1382,7 @@ export const ConfigDashboard: React.FC = () => {
         preferredAirlines: '',
         maxStops: '',
       },
+      starkNavigator: { enabled: false, criteria: '', dailyScheduleEnabled: false, dailyScheduleTime: '08:00', hotAlertEnabled: true },
     };
     const defaultNumbers: AuthorizedNumber[] = [];
     const defaultChannels = [
@@ -1895,6 +1906,7 @@ export const ConfigDashboard: React.FC = () => {
               { id: 'strategic-advisor', label: 'Chanakya', icon: Sparkles, desc: 'Monitoring, briefings, LLM' },
               { id: 'travel-agent', label: 'Henry', icon: Plane, desc: 'Travel — trip plans, booking, payment' },
               { id: 'beer-mule', label: 'Beer Mule', icon: Beer, desc: 'Track & auto-buy limited beer releases' },
+              { id: 'stark-navigator', label: 'StarkNavigator', icon: TrendingUp, desc: 'Investments & big purchases — recommendations, hot alerts' },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -3194,6 +3206,7 @@ export const ConfigDashboard: React.FC = () => {
 
         {/* Beer Mule — auto-purchase limited beer releases */}
         {activeTab === 'beer-mule' && <BeerMule />}
+        {activeTab === 'stark-navigator' && <StarkNavigator />}
 
       {/* Channel Configuration Modal */}
       {configureModal && (
