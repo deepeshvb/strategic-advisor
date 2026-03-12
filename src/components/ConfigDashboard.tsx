@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { 
   Settings, 
   Phone, 
@@ -27,10 +27,13 @@ import {
   Beer,
   TrendingUp,
   Zap,
+  UserCheck,
 } from 'lucide-react';
 import { LobsterBackground } from './LobsterBackground';
+import { AgentTabBackground } from './AgentTabBackground';
 import BeerMule from './BeerMule';
 import StarkNavigator from './StarkNavigator';
+import Kandidly from './Kandidly';
 
 interface Config {
   ceo: {
@@ -85,15 +88,26 @@ interface Config {
     maxStops?: string | number;
     priceMonitorEnabled?: boolean;
     priceMonitorIntervalHours?: number;
+    henryAutoBookAndPay?: boolean;
     amadeusApiKey?: string;
     amadeusApiSecret?: string;
+    restaurantAvailability?: string;
+    hardToGetRestaurants?: Array<{ id?: string; name: string; city: string; platform: string; openDayOfWeek: string; openTimeET: string; advanceWeeks: number; partySize?: number; bookingLink?: string; notes?: string }>;
+    openTableEmail?: string;
+    openTablePassword?: string;
+    resyEmail?: string;
+    resyPassword?: string;
   };
   starkNavigator?: {
     enabled: boolean;
     criteria: string;
+    symbolsToMonitor?: string;
     dailyScheduleEnabled: boolean;
     dailyScheduleTime: string;
     hotAlertEnabled: boolean;
+  };
+  kandidly?: {
+    enabled: boolean;
   };
 }
 
@@ -885,6 +899,7 @@ function HenryPriceMonitorTrips({ enabled }: { enabled: boolean }) {
     lastPrice?: number | null;
     lastPriceAt?: string | null;
     lastRecommendation?: { recommendBuy: boolean; reason: string; confidence: string } | null;
+    passengers?: { id: string; firstName: string; lastName: string; dateOfBirth: string | null }[];
   }>>([]);
   const [loading, setLoading] = useState(true);
   const [runNowLoading, setRunNowLoading] = useState(false);
@@ -896,6 +911,34 @@ function HenryPriceMonitorTrips({ enabled }: { enabled: boolean }) {
   const [addCabinClass, setAddCabinClass] = useState('ECONOMY');
   const [addCurrency, setAddCurrency] = useState('USD');
   const [addLoading, setAddLoading] = useState(false);
+  const [editingTripId, setEditingTripId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<{ origin: string; destination: string; startDate: string; endDate: string; travelers: number; cabinClass: string; currency: string } | null>(null);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [passengersTripId, setPassengersTripId] = useState<string | null>(null);
+  const [paxFirstName, setPaxFirstName] = useState('');
+  const [paxLastName, setPaxLastName] = useState('');
+  const [paxDob, setPaxDob] = useState('');
+  const [paxLoading, setPaxLoading] = useState(false);
+  const [confirmBuyLoading, setConfirmBuyLoading] = useState(false);
+  const [confirmBuyMessage, setConfirmBuyMessage] = useState<string | null>(null);
+
+  const startEdit = (t: typeof trips[0]) => {
+    setEditingTripId(t.id);
+    setEditForm({
+      origin: t.origin || '',
+      destination: t.destination || '',
+      startDate: t.startDate || '',
+      endDate: t.endDate || '',
+      travelers: t.travelers ?? 1,
+      cabinClass: t.cabinClass || 'ECONOMY',
+      currency: t.currency || 'USD',
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingTripId(null);
+    setEditForm(null);
+  };
 
   const loadTrips = useCallback(async () => {
     try {
@@ -961,9 +1004,31 @@ function HenryPriceMonitorTrips({ enabled }: { enabled: boolean }) {
   const handleDelete = async (id: string) => {
     try {
       await fetch(`/api/travel/price-monitor/trips/${id}`, { method: 'DELETE' });
+      setEditingTripId(null);
+      setEditForm(null);
       loadTrips();
     } catch (e) {
       console.warn('Delete failed:', e);
+    }
+  };
+
+  const handleSaveEdit = async (t: typeof trips[0], patch: { origin?: string; destination?: string; startDate?: string; endDate?: string; travelers?: number; cabinClass?: string; currency?: string }) => {
+    setSaveLoading(true);
+    try {
+      const res = await fetch(`/api/travel/price-monitor/trips/${t.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      if (res.ok) {
+        setEditingTripId(null);
+        setEditForm(null);
+        loadTrips();
+      }
+    } catch (e) {
+      console.warn('Update failed:', e);
+    } finally {
+      setSaveLoading(false);
     }
   };
 
@@ -974,6 +1039,54 @@ function HenryPriceMonitorTrips({ enabled }: { enabled: boolean }) {
       loadTrips();
     } finally {
       setRunNowLoading(false);
+    }
+  };
+
+  const handleAddPassenger = async (tripId: string) => {
+    if (!paxFirstName.trim() || !paxLastName.trim()) return;
+    setPaxLoading(true);
+    try {
+      const res = await fetch(`/api/travel/price-monitor/trips/${tripId}/passengers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ firstName: paxFirstName.trim(), lastName: paxLastName.trim(), dateOfBirth: paxDob.trim() || undefined }),
+      });
+      if (res.ok) {
+        setPaxFirstName('');
+        setPaxLastName('');
+        setPaxDob('');
+        loadTrips();
+      }
+    } finally {
+      setPaxLoading(false);
+    }
+  };
+
+  const handleRemovePassenger = async (tripId: string, passengerId: string) => {
+    try {
+      await fetch(`/api/travel/price-monitor/trips/${tripId}/passengers/${passengerId}`, { method: 'DELETE' });
+      loadTrips();
+    } catch (e) {
+      console.warn('Remove passenger failed:', e);
+    }
+  };
+
+  const handleConfirmBuy = async () => {
+    setConfirmBuyMessage(null);
+    setConfirmBuyLoading(true);
+    try {
+      const res = await fetch('/api/travel/price-monitor/confirm-buy', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (data.success) {
+        setConfirmBuyMessage(data.message || 'Booking created.');
+        loadTrips();
+      } else {
+        setConfirmBuyMessage(data.message || 'Booking failed.');
+      }
+    } catch (e) {
+      setConfirmBuyMessage('Request failed.');
+    } finally {
+      setConfirmBuyLoading(false);
     }
   };
 
@@ -999,14 +1112,20 @@ function HenryPriceMonitorTrips({ enabled }: { enabled: boolean }) {
           <option value="GBP">GBP</option>
         </select>
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2 items-center">
         <button type="button" onClick={handleAdd} disabled={addLoading || !addDestination.trim()} className="btn-secondary text-sm">
           {addLoading ? 'Adding…' : 'Add trip to monitor'}
         </button>
         <button type="button" onClick={handleRunNow} disabled={runNowLoading} className="btn-secondary text-sm" title="Run price check now and update recommendations">
           {runNowLoading ? 'Checking…' : 'Run price check now'}
         </button>
+        <button type="button" onClick={handleConfirmBuy} disabled={confirmBuyLoading} className="btn-primary text-sm" title="Book the pending flight from the last Buy alert (requires passengers set per trip)">
+          {confirmBuyLoading ? 'Booking…' : 'Confirm buy (book pending flight)'}
+        </button>
       </div>
+      {confirmBuyMessage && (
+        <p className={`text-sm ${confirmBuyMessage.startsWith('✅') ? 'text-green-400' : 'text-amber-400'}`}>{confirmBuyMessage}</p>
+      )}
       {loading ? (
         <p className="text-sm text-gray-500">Loading monitored trips…</p>
       ) : trips.length === 0 ? (
@@ -1014,26 +1133,82 @@ function HenryPriceMonitorTrips({ enabled }: { enabled: boolean }) {
       ) : (
         <ul className="divide-y divide-gray-700 text-sm">
           {trips.map((t) => (
-            <li key={t.id} className="py-2 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-white">
-                {t.origin ? `${t.origin} → ` : ''}{t.destination}
-                {t.startDate && ` (${t.startDate}${t.endDate ? ` – ${t.endDate}` : ''})`}
-              </span>
-              <span className="text-gray-400">
-                {t.lastPrice != null ? `${t.currency} ${t.lastPrice}` : '—'}
-                {t.lastRecommendation && (
-                  <span className={t.lastRecommendation.recommendBuy ? ' text-green-400' : ' text-amber-400'}>
-                    {' '}{t.lastRecommendation.recommendBuy ? '✓ Buy' : 'Wait'}
+            <li key={t.id} className="py-2">
+              {editingTripId === t.id && editForm ? (
+                <div className="space-y-2 pl-0">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                    <input type="text" placeholder="Origin (e.g. EWR)" value={editForm.origin} onChange={(e) => setEditForm({ ...editForm, origin: e.target.value })} className="config-input" />
+                    <input type="text" placeholder="Destination (e.g. LIS)" value={editForm.destination} onChange={(e) => setEditForm({ ...editForm, destination: e.target.value })} className="config-input" required />
+                    <input type="date" placeholder="Start" value={editForm.startDate} onChange={(e) => setEditForm({ ...editForm, startDate: e.target.value })} className="config-input" />
+                    <input type="date" placeholder="End" value={editForm.endDate} onChange={(e) => setEditForm({ ...editForm, endDate: e.target.value })} className="config-input" />
+                    <input type="number" min={1} value={editForm.travelers} onChange={(e) => setEditForm({ ...editForm, travelers: parseInt(e.target.value, 10) || 1 })} className="config-input w-24" />
+                    <select value={editForm.cabinClass} onChange={(e) => setEditForm({ ...editForm, cabinClass: e.target.value })} className="config-input max-w-[140px]">
+                      <option value="ECONOMY">Economy</option>
+                      <option value="PREMIUM_ECONOMY">Premium economy</option>
+                      <option value="BUSINESS">Business</option>
+                      <option value="FIRST">First</option>
+                    </select>
+                    <select value={editForm.currency} onChange={(e) => setEditForm({ ...editForm, currency: e.target.value })} className="config-input max-w-[80px]">
+                      <option value="USD">USD</option>
+                      <option value="EUR">EUR</option>
+                      <option value="GBP">GBP</option>
+                    </select>
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => handleSaveEdit(t, editForm)} disabled={saveLoading || !editForm.destination.trim()} className="btn-primary text-sm py-1.5 px-3">
+                      {saveLoading ? 'Saving…' : 'Save changes'}
+                    </button>
+                    <button type="button" onClick={cancelEdit} className="btn-secondary text-sm py-1.5 px-3">Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-white">
+                    {t.origin ? `${t.origin} → ` : ''}{t.destination}
+                    {t.startDate && ` (${t.startDate}${t.endDate ? ` – ${t.endDate}` : ''})`}
                   </span>
-                )}
-              </span>
-              <div className="flex items-center gap-2">
-                <label className="flex items-center gap-1 cursor-pointer">
-                  <input type="checkbox" checked={t.enabled} onChange={(e) => handleToggle(t.id, e.target.checked)} className="rounded border-gray-500 bg-gray-600 text-lobster-500" />
-                  <span className="text-xs text-gray-400">On</span>
-                </label>
-                <button type="button" onClick={() => handleDelete(t.id)} className="text-red-400 hover:text-red-300 text-xs">Remove</button>
-              </div>
+                  <span className="text-gray-400">
+                    {t.lastPrice != null ? `${t.currency} ${t.lastPrice}` : '—'}
+                    {t.lastRecommendation && (
+                      <span className={t.lastRecommendation.recommendBuy ? ' text-green-400' : ' text-amber-400'}>
+                        {' '}{t.lastRecommendation.recommendBuy ? '✓ Buy' : 'Wait'}
+                      </span>
+                    )}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setPassengersTripId(passengersTripId === t.id ? null : t.id)} className="text-lobster-400 hover:text-lobster-300 text-xs">
+                      Passengers ({(t.passengers || []).length})
+                    </button>
+                    <button type="button" onClick={() => startEdit(t)} className="text-lobster-400 hover:text-lobster-300 text-xs">Edit</button>
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input type="checkbox" checked={t.enabled} onChange={(e) => handleToggle(t.id, e.target.checked)} className="rounded border-gray-500 bg-gray-600 text-lobster-500" />
+                      <span className="text-xs text-gray-400">On</span>
+                    </label>
+                    <button type="button" onClick={() => handleDelete(t.id)} className="text-red-400 hover:text-red-300 text-xs">Remove</button>
+                  </div>
+                </div>
+              )}
+              {passengersTripId === t.id && (
+                <div className="mt-2 pl-2 border-l-2 border-gray-600 space-y-2">
+                  <p className="text-xs text-gray-400">Passenger names and DOB are used when you confirm buy (email/WhatsApp or button above).</p>
+                  <ul className="text-sm text-gray-300 space-y-1">
+                    {(t.passengers || []).map((p) => (
+                      <li key={p.id} className="flex items-center justify-between gap-2">
+                        <span>{p.firstName} {p.lastName}{p.dateOfBirth ? ` (${p.dateOfBirth})` : ''}</span>
+                        <button type="button" onClick={() => handleRemovePassenger(t.id, p.id)} className="text-red-400 hover:text-red-300 text-xs">Remove</button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex flex-wrap gap-2 items-end">
+                    <input type="text" placeholder="First name" value={paxFirstName} onChange={(e) => setPaxFirstName(e.target.value)} className="config-input w-28" />
+                    <input type="text" placeholder="Last name" value={paxLastName} onChange={(e) => setPaxLastName(e.target.value)} className="config-input w-28" />
+                    <input type="date" placeholder="DOB (YYYY-MM-DD)" value={paxDob} onChange={(e) => setPaxDob(e.target.value)} className="config-input w-36" title="Optional" />
+                    <button type="button" onClick={() => handleAddPassenger(t.id)} disabled={paxLoading || !paxFirstName.trim() || !paxLastName.trim()} className="btn-secondary text-sm py-1 px-2">
+                      {paxLoading ? 'Adding…' : 'Add passenger'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -1042,7 +1217,7 @@ function HenryPriceMonitorTrips({ enabled }: { enabled: boolean }) {
   );
 }
 
-function HenryRestaurantAndReminders({ enabled }: { enabled: boolean }) {
+function HenryRestaurantAndReminders({ enabled, config, setConfig }: { enabled: boolean; config?: Config; setConfig?: (c: Config) => void }) {
   const [city, setCity] = useState('');
   const [cuisine, setCuisine] = useState('');
   const [date, setDate] = useState('');
@@ -1216,6 +1391,160 @@ function HenryRestaurantAndReminders({ enabled }: { enabled: boolean }) {
         )}
       </section>
 
+      {config && setConfig && (
+      <section className="config-card">
+        <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-200">
+          <Clock size={20} />
+          Hard-to-get restaurant bookings
+        </h3>
+        <p className="text-sm text-gray-400 mb-4">Some restaurants (e.g. Una Pizza NYC) open reservations at a fixed day and time (e.g. two weeks ahead at 9:00 AM ET) and fill in seconds. Henry will monitor and alert you the moment the window opens so you can book. Add your availability so alerts include when you&apos;re free.</p>
+        <div className="mb-4">
+          <label className="config-label">My availability for restaurant reservations</label>
+          <textarea
+            placeholder="e.g. March 2026, or March 15–20, or weekends in March; or Thu–Sat 6–10pm ET"
+            value={config?.travelAgent?.restaurantAvailability ?? ''}
+            onChange={(e) => setConfig({ ...config, travelAgent: { ...config.travelAgent, restaurantAvailability: e.target.value } })}
+            className="config-input w-full min-h-[80px]"
+            rows={3}
+          />
+          <p className="text-xs text-gray-500 mt-1">Henry will only book (or suggest) times within this window—e.g. a month, specific days, or time ranges.</p>
+        </div>
+        <div>
+          <h4 className="text-sm font-medium text-gray-300 mb-2">Restaurants that open at a specific day/time</h4>
+          <p className="text-xs text-gray-500 mb-3">When the window opens (e.g. Thursday 9:00 AM ET), Henry will send an immediate WhatsApp + email so you can book right away.</p>
+          {(config?.travelAgent?.hardToGetRestaurants || []).map((r, idx) => (
+            <div key={r.id || idx} className="p-4 rounded-lg bg-gray-800/50 border border-gray-700 mb-3 space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input type="text" placeholder="Restaurant name *" value={r.name} onChange={(e) => {
+                  const list = [...(config?.travelAgent?.hardToGetRestaurants || [])];
+                  list[idx] = { ...list[idx], name: e.target.value };
+                  setConfig({ ...config, travelAgent: { ...config.travelAgent, hardToGetRestaurants: list } });
+                }} className="config-input" />
+                <input type="text" placeholder="City *" value={r.city} onChange={(e) => {
+                  const list = [...(config?.travelAgent?.hardToGetRestaurants || [])];
+                  list[idx] = { ...list[idx], city: e.target.value };
+                  setConfig({ ...config, travelAgent: { ...config.travelAgent, hardToGetRestaurants: list } });
+                }} className="config-input" />
+                <div>
+                  <label className="text-xs text-gray-500">Platform</label>
+                  <select value={r.platform || 'OpenTable'} onChange={(e) => {
+                    const list = [...(config?.travelAgent?.hardToGetRestaurants || [])];
+                    list[idx] = { ...list[idx], platform: e.target.value };
+                    setConfig({ ...config, travelAgent: { ...config.travelAgent, hardToGetRestaurants: list } });
+                  }} className="config-input w-full">
+                    <option value="OpenTable">OpenTable</option>
+                    <option value="Resy">Resy</option>
+                    <option value="Tock">Tock</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Opens (day of week)</label>
+                  <select value={r.openDayOfWeek || 'Any'} onChange={(e) => {
+                    const list = [...(config?.travelAgent?.hardToGetRestaurants || [])];
+                    list[idx] = { ...list[idx], openDayOfWeek: e.target.value };
+                    setConfig({ ...config, travelAgent: { ...config.travelAgent, hardToGetRestaurants: list } });
+                  }} className="config-input w-full">
+                    <option value="Any">Any day</option>
+                    <option value="Monday">Monday</option>
+                    <option value="Tuesday">Tuesday</option>
+                    <option value="Wednesday">Wednesday</option>
+                    <option value="Thursday">Thursday</option>
+                    <option value="Friday">Friday</option>
+                    <option value="Saturday">Saturday</option>
+                    <option value="Sunday">Sunday</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Opens at (ET, 24h e.g. 09:00)</label>
+                  <input type="text" placeholder="09:00" value={r.openTimeET || '09:00'} onChange={(e) => {
+                    const list = [...(config?.travelAgent?.hardToGetRestaurants || [])];
+                    list[idx] = { ...list[idx], openTimeET: e.target.value || '09:00' };
+                    setConfig({ ...config, travelAgent: { ...config.travelAgent, hardToGetRestaurants: list } });
+                  }} className="config-input w-full" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Advance (weeks)</label>
+                  <input type="number" min={1} max={12} value={r.advanceWeeks ?? 2} onChange={(e) => {
+                    const list = [...(config?.travelAgent?.hardToGetRestaurants || [])];
+                    list[idx] = { ...list[idx], advanceWeeks: parseInt(e.target.value, 10) || 2 };
+                    setConfig({ ...config, travelAgent: { ...config.travelAgent, hardToGetRestaurants: list } });
+                  }} className="config-input w-full" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Party size (people)</label>
+                  <input type="number" min={1} max={20} value={r.partySize ?? 2} onChange={(e) => {
+                    const list = [...(config?.travelAgent?.hardToGetRestaurants || [])];
+                    list[idx] = { ...list[idx], partySize: parseInt(e.target.value, 10) || 2 };
+                    setConfig({ ...config, travelAgent: { ...config.travelAgent, hardToGetRestaurants: list } });
+                  }} className="config-input w-full" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="text-xs text-gray-500">Booking link (optional)</label>
+                  <input type="url" placeholder="https://..." value={r.bookingLink || ''} onChange={(e) => {
+                    const list = [...(config?.travelAgent?.hardToGetRestaurants || [])];
+                    list[idx] = { ...list[idx], bookingLink: e.target.value };
+                    setConfig({ ...config, travelAgent: { ...config.travelAgent, hardToGetRestaurants: list } });
+                  }} className="config-input w-full" />
+                </div>
+              </div>
+              <div className="flex justify-between items-center">
+                <input type="text" placeholder="Notes (optional)" value={r.notes || ''} onChange={(e) => {
+                  const list = [...(config?.travelAgent?.hardToGetRestaurants || [])];
+                  list[idx] = { ...list[idx], notes: e.target.value };
+                  setConfig({ ...config, travelAgent: { ...config.travelAgent, hardToGetRestaurants: list } });
+                }} className="config-input flex-1 mr-2" />
+                <button type="button" onClick={() => {
+                  const list = (config?.travelAgent?.hardToGetRestaurants || []).filter((_, i) => i !== idx);
+                  setConfig({ ...config, travelAgent: { ...config.travelAgent, hardToGetRestaurants: list } });
+                }} className="text-red-400 hover:text-red-300 flex items-center gap-1 text-sm">
+                  <Trash2 size={14} /> Remove
+                </button>
+              </div>
+            </div>
+          ))}
+          <button type="button" onClick={() => {
+            const list = [...(config?.travelAgent?.hardToGetRestaurants || []), { name: '', city: '', platform: 'OpenTable', openDayOfWeek: 'Thursday', openTimeET: '09:00', advanceWeeks: 2, partySize: 2 }];
+            setConfig({ ...config, travelAgent: { ...config.travelAgent, hardToGetRestaurants: list } });
+          }} className="btn-secondary flex items-center gap-2">
+            <Plus size={16} /> Add restaurant
+          </button>
+        </div>
+        <p className="text-xs text-amber-400 mt-3">Save config (top of page) after editing. Henry will alert at the configured day and time (Eastern); make sure the backend is running.</p>
+      </section>
+      )}
+
+      {config && setConfig && (
+      <section className="config-card">
+        <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-200">
+          <CreditCard size={20} />
+          Booking site credentials (for auto-booking)
+        </h3>
+        <p className="text-sm text-gray-400 mb-4">Store Resy login (email + password) so Henry can try to auto-book when a Resy restaurant&apos;s window opens. OpenTable is not supported for auto-login.</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="p-4 rounded-lg bg-gray-800/50 border border-gray-700">
+            <h4 className="text-sm font-medium text-gray-300 mb-3">OpenTable</h4>
+            <p className="text-sm text-gray-400">OpenTable now uses a one-time code sent to your email or phone to sign in, so there is no fixed password to provide. Henry cannot auto-login or auto-book OpenTable reservations.</p>
+            <p className="text-sm text-gray-400 mt-2">When a hard-to-get restaurant uses OpenTable, Henry will still alert you the moment the window opens so you can sign in (with the code they send) and book manually.</p>
+          </div>
+          <div className="p-4 rounded-lg bg-gray-800/50 border border-gray-700">
+            <h4 className="text-sm font-medium text-gray-300 mb-3">Resy</h4>
+            <div className="space-y-3">
+              <div>
+                <label className="config-label">Email</label>
+                <input type="email" placeholder="you@example.com" value={config?.travelAgent?.resyEmail ?? ''} onChange={(e) => setConfig({ ...config, travelAgent: { ...config.travelAgent, resyEmail: e.target.value } })} className="config-input w-full" />
+              </div>
+              <div>
+                <label className="config-label">Password</label>
+                <input type="password" placeholder={(config?.travelAgent?.resyPassword && (config.travelAgent.resyPassword === '••••••••' || config.travelAgent.resyPassword.length > 0)) ? '••••••••' : 'Enter password'} value={config?.travelAgent?.resyPassword === '••••••••' ? '' : (config?.travelAgent?.resyPassword ?? '')} onChange={(e) => setConfig({ ...config, travelAgent: { ...config.travelAgent, resyPassword: e.target.value } })} className="config-input w-full" autoComplete="off" />
+                <p className="text-xs text-gray-500 mt-1">Henry will attempt to log in and book when a Resy restaurant&apos;s window opens.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p className="text-xs text-amber-400 mt-3">Save config (top of page) after entering. Credentials are used only for auto-booking; alerts are sent regardless.</p>
+      </section>
+      )}
+
       <section className="config-card">
         <h3 className="text-lg font-semibold flex items-center gap-2 text-gray-200">
           <Bell size={20} />
@@ -1316,6 +1645,11 @@ export const ConfigDashboard: React.FC = () => {
   const [transcriptionResult, setTranscriptionResult] = useState<{ success?: boolean; message?: string; processed?: number; sent?: number; error?: string } | null>(null);
   const [sendingWeeklyReview, setSendingWeeklyReview] = useState(false);
   const [weeklyReviewResult, setWeeklyReviewResult] = useState<{ success?: boolean; message?: string; email?: boolean; whatsapp?: boolean; error?: string } | null>(null);
+  const [henryHasPaymentMethod, setHenryHasPaymentMethod] = useState(false);
+  const [henryPmIdInput, setHenryPmIdInput] = useState('');
+  const [henryPmSaving, setHenryPmSaving] = useState(false);
+  const henryCardElementRef = useRef<HTMLDivElement>(null);
+  const henryStripeRef = useRef<{ stripe: { createPaymentMethod: (opts: { type: string; card: unknown }) => Promise<{ paymentMethod?: { id: string }; error?: { message: string } }> }; card: { destroy: () => void } } | null>(null);
   const [ollamaStatus, setOllamaStatus] = useState<{ running: boolean; modelLoaded?: boolean; configuredModel?: string; error?: string } | null>(null);
   /** True when config/companies could not be loaded (backend down or timeout) — avoid saving and overwriting good data */
   const [configLoadFailed, setConfigLoadFailed] = useState(false);
@@ -1339,6 +1673,35 @@ export const ConfigDashboard: React.FC = () => {
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'travel-agent') {
+      fetch('/api/travel/price-monitor/payment-method')
+        .then((r) => r.json())
+        .then((d) => setHenryHasPaymentMethod(!!d?.hasPaymentMethod))
+        .catch(() => setHenryHasPaymentMethod(false));
+    }
+  }, [activeTab]);
+
+  // Mount Stripe card element when Henry tab is active, publishable key is set, and no payment method saved yet
+  useLayoutEffect(() => {
+    const pk = (config?.travelAgent?.stripePublishableKey ?? '').trim();
+    if (activeTab !== 'travel-agent' || henryHasPaymentMethod || !pk || !henryCardElementRef.current) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const Stripe = (window as any).Stripe;
+    if (!Stripe) return;
+    const stripe = Stripe(pk);
+    const elements = stripe.elements();
+    const card = elements.create('card', {
+      style: { base: { color: '#e5e7eb', fontFamily: 'Inter, system-ui, sans-serif', fontSize: '16px', '::placeholder': { color: '#9ca3af' } } },
+    });
+    card.mount(henryCardElementRef.current);
+    henryStripeRef.current = { stripe, card };
+    return () => {
+      card.destroy();
+      henryStripeRef.current = null;
+    };
+  }, [activeTab, config?.travelAgent?.stripePublishableKey, henryHasPaymentMethod]);
 
   // Fetch Ollama status when LLM strategy uses local/hybrid (for dashboard indicator)
   useEffect(() => {
@@ -1381,8 +1744,15 @@ export const ConfigDashboard: React.FC = () => {
         preferredClassOfTravel: '',
         preferredAirlines: '',
         maxStops: '',
+        restaurantAvailability: '',
+        hardToGetRestaurants: [],
+        openTableEmail: '',
+        openTablePassword: '',
+        resyEmail: '',
+        resyPassword: '',
       },
-      starkNavigator: { enabled: false, criteria: '', dailyScheduleEnabled: false, dailyScheduleTime: '08:00', hotAlertEnabled: true },
+      starkNavigator: { enabled: false, criteria: '', symbolsToMonitor: '', dailyScheduleEnabled: false, dailyScheduleTime: '08:00', hotAlertEnabled: true },
+      kandidly: { enabled: false },
     };
     const defaultNumbers: AuthorizedNumber[] = [];
     const defaultChannels = [
@@ -1857,6 +2227,7 @@ export const ConfigDashboard: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 text-white relative">
       <LobsterBackground />
+      <AgentTabBackground activeTab={activeTab} />
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-white/[0.06] bg-gray-950/80 backdrop-blur-xl relative">
         <div className="max-w-7xl mx-auto flex items-center justify-between px-4 py-4 sm:px-6">
@@ -1875,7 +2246,7 @@ export const ConfigDashboard: React.FC = () => {
             className="btn-primary px-5 py-2.5"
           >
             <Save size={18} strokeWidth={2} />
-            {saving ? 'Saving...' : 'Save changes'}
+            {saving ? 'Saving...' : 'Save global config'}
           </button>
         </div>
       </header>
@@ -1907,6 +2278,7 @@ export const ConfigDashboard: React.FC = () => {
               { id: 'travel-agent', label: 'Henry', icon: Plane, desc: 'Travel — trip plans, booking, payment' },
               { id: 'beer-mule', label: 'Beer Mule', icon: Beer, desc: 'Track & auto-buy limited beer releases' },
               { id: 'stark-navigator', label: 'StarkNavigator', icon: TrendingUp, desc: 'Investments & big purchases — recommendations, hot alerts' },
+              { id: 'kandidly', label: 'Kandidly', icon: UserCheck, desc: 'Hiring screener — score candidates vs JD' },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -1920,45 +2292,6 @@ export const ConfigDashboard: React.FC = () => {
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            disabled={sendingBriefingTest}
-            onClick={async () => {
-              setSendingBriefingTest(true);
-              setBriefingTestResult(null);
-              try {
-                const res = await fetch('/api/test/email-briefing');
-                const data = await res.json();
-                const ok = res.ok && data.success;
-                setBriefingTestResult({
-                  success: ok,
-                  message: data.message,
-                  email: data.email,
-                  whatsapp: data.whatsapp,
-                  error: data.error,
-                  emailTo: data.emailTo,
-                  whatsappTo: data.whatsappTo,
-                });
-                if (ok) {
-                  const parts = [];
-                  if (data.email && data.emailTo) parts.push(`Email sent to ${data.emailTo}`);
-                  if (data.whatsapp && data.whatsappTo) parts.push(`WhatsApp sent to ${data.whatsappTo}`);
-                  setMessage({ type: 'success', text: parts.length ? parts.join('. ') : data.message });
-                } else {
-                  setMessage({ type: 'error', text: data.message || data.error || 'Briefing not sent. Check backend console and email/SendGrid config.' });
-                }
-              } catch (e) {
-                setBriefingTestResult({ success: false, error: 'Request failed. Is the backend running?' });
-                setMessage({ type: 'error', text: 'Could not reach backend. Start it and try again.' });
-              }
-              setTimeout(() => setMessage(null), 8000);
-              setSendingBriefingTest(false);
-            }}
-            className="flex items-center gap-2 px-4 py-3 rounded-xl bg-lobster-500 hover:bg-lobster-400 text-white font-medium border border-lobster-400/30 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-          >
-            <Send size={20} />
-            {sendingBriefingTest ? 'Sending…' : 'Send briefing now'}
-          </button>
         </div>
 
         {/* General — applies to all agents: Contact, Companies, Authorized Users */}
@@ -2260,6 +2593,16 @@ export const ConfigDashboard: React.FC = () => {
         {/* Chanakya — agent-specific: Monitoring, Briefings, LLM */}
         {activeTab === 'strategic-advisor' && (
           <div className="space-y-8">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <button
+                onClick={saveConfig}
+                disabled={saving}
+                className="btn-primary px-4 py-2.5"
+              >
+                <Save size={18} strokeWidth={2} />
+                {saving ? 'Saving...' : 'Save Chanakya changes'}
+              </button>
+            </div>
             <section className="config-card">
               <h2 className="config-heading">
                 <Clock className="config-heading-icon" />
@@ -2360,8 +2703,8 @@ export const ConfigDashboard: React.FC = () => {
                 </div>
               </div>
               <div className="mt-4 pt-4 border-t border-gray-700">
-                <h3 className="text-sm font-medium text-gray-300 mb-3">Send briefing on demand</h3>
-                <p className="text-xs text-gray-500 mb-2">Same as the &quot;Send briefing now&quot; button in the header: generates the live briefing (email + Teams data, AI summary) and sends it to your Contact email and WhatsApp. Requires backend email configured (SendGrid or Gmail/Outlook in .env).</p>
+                <h3 className="text-sm font-medium text-gray-300 mb-3">Send briefing now</h3>
+                <p className="text-xs text-gray-500 mb-2">Generates the live briefing (email + Teams data, AI summary) and sends it to your Contact email and WhatsApp. Requires backend email configured (SendGrid or Gmail/Outlook in .env).</p>
                 <div className="flex items-center gap-3 flex-wrap">
                   <button
                     type="button"
@@ -2397,9 +2740,10 @@ export const ConfigDashboard: React.FC = () => {
                       setTimeout(() => setMessage(null), 8000);
                       setSendingBriefingTest(false);
                     }}
-                    className="btn-primary text-sm py-2 px-4"
+                    className="btn-primary text-sm py-2 px-4 flex items-center gap-2"
                   >
-                    {sendingBriefingTest ? 'Sending…' : 'Send test briefing to email + WhatsApp'}
+                    <Send size={18} />
+                    {sendingBriefingTest ? 'Sending…' : 'Send briefing now'}
                   </button>
                   {briefingTestResult && (
                     <span className={`text-sm ${briefingTestResult.success ? 'text-green-400' : 'text-amber-400'}`}>
@@ -2970,6 +3314,16 @@ export const ConfigDashboard: React.FC = () => {
         {/* Henry — Travel Agent: trip plans, costs, airlines, hotels, Airbnb, sightseeing, booking + secure payment */}
         {activeTab === 'travel-agent' && config && (
           <div className="space-y-8">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <button
+                onClick={saveConfig}
+                disabled={saving}
+                className="btn-primary px-4 py-2.5"
+              >
+                <Save size={18} strokeWidth={2} />
+                {saving ? 'Saving...' : 'Save Henry changes'}
+              </button>
+            </div>
             <section className="config-card">
               <h2 className="config-heading">
                 <Plane className="config-heading-icon" />
@@ -3169,6 +3523,114 @@ export const ConfigDashboard: React.FC = () => {
                       <span className="text-sm text-gray-400">hours</span>
                     </div>
                   </div>
+                  <div className="flex flex-col gap-3 mb-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config.travelAgent?.henryAutoBookAndPay === true}
+                        onChange={(e) => setConfig({
+                          ...config,
+                          travelAgent: { ...(config.travelAgent || {}), henryAutoBookAndPay: e.target.checked },
+                        })}
+                        className="rounded border-gray-500 bg-gray-600 text-lobster-500 focus:ring-lobster-500"
+                      />
+                      <span className="text-sm text-white">Automatically book and pay when Henry recommends buy</span>
+                    </label>
+                    <p className="text-xs text-gray-500">When on, Henry will book the flight and charge your saved payment method as soon as it recommends buy. Requires: payment method below and passengers set per trip. Set STRIPE_SECRET_KEY in backend env.</p>
+                  </div>
+                  <div className="mb-4 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+                    <h5 className="text-sm font-medium text-gray-300 mb-2">Payment method for auto-book</h5>
+                    {henryHasPaymentMethod ? (
+                      <p className="text-sm text-green-400">Payment method saved. Henry will use it when auto-book is on.</p>
+                    ) : (
+                      <>
+                        {(config?.travelAgent?.stripePublishableKey ?? '').trim() ? (
+                          <>
+                            <p className="text-xs text-gray-500 mb-2">Enter card details below (handled by Stripe; we never see your card number). Test mode: use 4242 4242 4242 4242.</p>
+                            <div ref={henryCardElementRef} className="p-3 rounded-lg bg-gray-700/50 border border-gray-600 mb-3 min-h-[40px]" />
+                            <div className="flex flex-wrap items-center gap-2 mb-3">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const s = henryStripeRef.current;
+                                  if (!s) return;
+                                  setHenryPmSaving(true);
+                                  try {
+                                    const r = await s.stripe.createPaymentMethod({ type: 'card', card: s.card });
+                                    if (r.error) {
+                                      setMessage({ type: 'error', text: r.error.message || 'Card failed' });
+                                      setTimeout(() => setMessage(null), 5000);
+                                      return;
+                                    }
+                                    if (!r.paymentMethod?.id) return;
+                                    const res = await fetch('/api/travel/price-monitor/payment-method', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ paymentMethodId: r.paymentMethod.id }),
+                                    });
+                                    const data = await res.json().catch(() => ({}));
+                                    if (data.success) {
+                                      setHenryHasPaymentMethod(true);
+                                      setMessage({ type: 'success', text: 'Card saved for Henry auto-book.' });
+                                      setTimeout(() => setMessage(null), 3000);
+                                    } else {
+                                      setMessage({ type: 'error', text: data.error || 'Save failed' });
+                                      setTimeout(() => setMessage(null), 5000);
+                                    }
+                                  } finally {
+                                    setHenryPmSaving(false);
+                                  }
+                                }}
+                                disabled={henryPmSaving}
+                                className="btn-primary text-sm py-1.5 px-3"
+                              >
+                                {henryPmSaving ? 'Saving…' : 'Save card'}
+                              </button>
+                            </div>
+                            <p className="text-xs text-gray-500 mb-2">Or paste a Payment Method ID (pm_...) if you have one:</p>
+                          </>
+                        ) : (
+                          <p className="text-xs text-amber-400/90 mb-2">Add your <strong>Stripe publishable key</strong> above (Config → Henry) and save, then return here to add a card.</p>
+                        )}
+                        <div className="flex flex-wrap items-end gap-2">
+                          <input
+                            type="text"
+                            placeholder="Stripe Payment Method ID (pm_...)"
+                            value={henryPmIdInput}
+                            onChange={(e) => setHenryPmIdInput(e.target.value)}
+                            className="config-input flex-1 min-w-[200px]"
+                          />
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!henryPmIdInput.trim()) return;
+                              setHenryPmSaving(true);
+                              try {
+                                const res = await fetch('/api/travel/price-monitor/payment-method', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ paymentMethodId: henryPmIdInput.trim() }),
+                                });
+                                const data = await res.json().catch(() => ({}));
+                                if (data.success) {
+                                  setHenryHasPaymentMethod(true);
+                                  setHenryPmIdInput('');
+                                }
+                              } finally {
+                                setHenryPmSaving(false);
+                              }
+                            }}
+                            disabled={henryPmSaving || !henryPmIdInput.trim()}
+                            className="btn-secondary text-sm py-1.5 px-3"
+                          >
+                            {henryPmSaving ? 'Saving…' : 'Save payment method'}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                    <p className="text-xs text-gray-500 mt-2">Backend must have <code className="bg-gray-700 px-1 rounded">STRIPE_SECRET_KEY</code> in .env.backend for charges. See <code className="bg-gray-700 px-1 rounded">docs/STRIPE-SETUP-HENRY.md</code>.</p>
+                  </div>
+                  <p className="text-xs text-gray-500 mb-2"><strong>Book manually:</strong> Reply &quot;Confirm buy&quot; to the price alert (email/WhatsApp) or use the &quot;Confirm buy (book pending flight)&quot; button in the trips list below.</p>
                   <HenryPriceMonitorTrips enabled={config.travelAgent?.enabled ?? false} />
                 </div>
               </div>
@@ -3194,11 +3656,15 @@ export const ConfigDashboard: React.FC = () => {
               />
             </section>
 
-            <HenryRestaurantAndReminders enabled={config.travelAgent?.enabled ?? false} />
+            <HenryRestaurantAndReminders
+              enabled={config.travelAgent?.enabled ?? false}
+              config={config}
+              setConfig={setConfig}
+            />
 
             <div className="p-4 bg-amber-900/30 border border-amber-700 rounded-lg">
               <p className="text-sm text-amber-200">
-                <strong>Secure payment:</strong> When you confirm a booking with Henry, only a payment method token (e.g. from Stripe) is stored encrypted. Raw card numbers are never saved. Use Stripe.js on the frontend to tokenize cards before sending.
+                <strong>Secure payment:</strong> Only a Stripe Payment Method ID is stored encrypted; raw card numbers are never saved. <strong>Auto-book:</strong> When “Automatically book and pay” is on, Henry books and charges your saved card as soon as it recommends buy. <strong>Manual:</strong> Turn auto off and reply “Confirm buy” or use the Confirm buy button; then pay via the link returned. Add passenger names (and optional DOB) per trip for booking.
               </p>
             </div>
           </div>
@@ -3207,6 +3673,7 @@ export const ConfigDashboard: React.FC = () => {
         {/* Beer Mule — auto-purchase limited beer releases */}
         {activeTab === 'beer-mule' && <BeerMule />}
         {activeTab === 'stark-navigator' && <StarkNavigator />}
+        {activeTab === 'kandidly' && <Kandidly />}
 
       {/* Channel Configuration Modal */}
       {configureModal && (

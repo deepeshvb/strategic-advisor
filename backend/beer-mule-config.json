@@ -1,0 +1,12 @@
+{
+  "apifyApiToken": "",
+  "apifyActorId": "singhera07/instagram-scraper",
+  "pollMinutes": 15,
+  "updatedAt": "2026-03-11T14:24:13.417Z",
+  "monitoringDays": [
+    2,
+    5
+  ],
+  "monitoringStartTime": "11:00",
+  "monitoringEndTime": "16:00"
+}

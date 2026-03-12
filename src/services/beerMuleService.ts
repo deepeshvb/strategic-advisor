@@ -121,7 +121,7 @@ export interface BeerHunt {
   createdAt: Date;
 }
 
-export type BeerHuntSource = 'untappd' | 'beermenus' | 'instagram' | 'manual';
+export type BeerHuntSource = 'untappd' | 'beermenus' | 'instagram' | 'manual' | 'catalogbeer';
 
 export interface BeerSighting {
   id: string;
@@ -195,8 +195,12 @@ export interface BeerMuleConfig {
   useAiParsing: boolean;
   /** Default WhatsApp number for Beer Hunt alerts (e.g. +1234567890) */
   alertWhatsAppNumber: string;
-  /** Beer Hunt scanning interval in seconds */
+  /** Beer Hunt scanning interval in seconds (used when beerHuntScheduleMode === 'interval') */
   beerHuntPollIntervalSeconds: number;
+  /** 'interval' = run every beerHuntPollIntervalSeconds; 'daily' = run once per day at beerHuntDailyTime */
+  beerHuntScheduleMode: 'interval' | 'daily';
+  /** When beerHuntScheduleMode === 'daily', run at this time (HH:mm, 24h) */
+  beerHuntDailyTime: string;
   /** Saved payment methods for auto-checkout */
   paymentMethods: SavedPaymentMethod[];
   /** Only run monitoring on these days (0=Sun … 6=Sat). Empty = every day. */
@@ -215,13 +219,15 @@ const DEFAULT_CONFIG: BeerMuleConfig = {
   pollIntervalSeconds: 15,
   fastPollIntervalSeconds: 5,
   releaseWindowMinutes: 30,
-  autoPurchaseEnabled: true,
+  autoPurchaseEnabled: false, // Troon flow: alert-only via webhook (email + WhatsApp); no auto-purchase
   instagramProxyUrl: '',
-  apifyApiToken: '',
+  apifyApiToken: '', // Optional: not used for Troon; webhook is the primary monitoring path
   apifyActorId: 'apify/instagram-post-scraper',
   useAiParsing: false,
   alertWhatsAppNumber: '',
   beerHuntPollIntervalSeconds: 300,
+  beerHuntScheduleMode: 'interval',
+  beerHuntDailyTime: '09:00',
   paymentMethods: [],
   monitoringDays: [],
   monitoringStartTime: '00:00',
@@ -486,24 +492,8 @@ class BeerMuleService {
   }
 
   private async pollAllBreweries(): Promise<void> {
-    const today = new Date().getDay();
     const active = this.breweries.filter(b => b.enabled);
-
     await this.pollWebhookQueue(active);
-
-    for (const brewery of active) {
-      if (brewery.releaseDays.length > 0 && !brewery.releaseDays.includes(today)) {
-        continue;
-      }
-      if (this.config.apifyApiToken) {
-        try {
-          await this.pollBrewery(brewery);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.addEvent(brewery.id, 'error', `Poll error for ${brewery.name}: ${msg}`);
-        }
-      }
-    }
     this.notify();
   }
 
@@ -612,6 +602,19 @@ class BeerMuleService {
     };
   }
 
+  /** Turn Apify API error response into a short, actionable message (e.g. actor free trial expired). */
+  private apifyErrorMessage(status: number, errText: string): string {
+    if (status === 403 && /actor-is-not-rented|free trial has expired/i.test(errText)) {
+      return (
+        'This Apify Actor\'s free trial has expired. For Troon: use webhook-only — clear the Apify API token in Config to stop these errors (alerts will still work via the webhook). Or switch Actor ID to apify/instagram-post-scraper for free tier.'
+      );
+    }
+    if (status === 403) {
+      return `Apify 403 Forbidden: ${errText.substring(0, 120)}`;
+    }
+    return `Apify HTTP ${status}: ${errText.substring(0, 200)}`;
+  }
+
   /**
    * Poll a single brewery's Instagram feed via Apify.
    * Calls the Apify Instagram scraper actor synchronously, gets recent posts,
@@ -639,7 +642,7 @@ class BeerMuleService {
 
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
-        throw new Error(`Apify HTTP ${res.status}: ${errText.substring(0, 200)}`);
+        throw new Error(this.apifyErrorMessage(res.status, errText));
       }
 
       const rawResults: Array<Record<string, unknown>> = await res.json();
@@ -854,168 +857,45 @@ class BeerMuleService {
     this.notify();
   }
 
-  // --- Test with real posts (fetch live, scan for URLs, don't buy) ---
+  /** Send a fake post to the backend webhook to test email + WhatsApp alerts (Troon webhook-only flow). */
+  private async testWebhookAlert(brewery: Brewery): Promise<void> {
+    const handle = brewery.instagramHandle.replace(/^@/, '');
+    const fakeCaption = `Test post from Beer Mule — order here: https://square.site/test-store-123 (this is a test; check your email and WhatsApp).`;
+    const body = {
+      username: handle,
+      caption: fakeCaption,
+      url: 'https://instagram.com/p/test',
+      timestamp: new Date().toISOString(),
+    };
+    try {
+      this.addEvent(brewery.id, 'poll', `🧪 TEST: Sending test post to webhook (no Apify) — check email and WhatsApp for alert.`);
+      this.notify();
+      const res = await fetch('/api/beermule/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.alerted) {
+        this.addEvent(brewery.id, 'release_detected', `🧪 TEST: Webhook alert sent. Check your email and WhatsApp.`);
+      } else if (res.ok && !data.alerted) {
+        this.addEvent(brewery.id, 'poll', `🧪 TEST: Webhook accepted but no alert sent (backend may not have URL in watched list).`);
+      } else {
+        this.addEvent(brewery.id, 'error', `🧪 TEST: Webhook returned ${res.status} — ${data.error || res.statusText}. Is the backend running and /api proxied?`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.addEvent(brewery.id, 'error', `🧪 TEST: Webhook request failed — ${msg}. Is the backend running?`);
+    }
+    this.notify();
+  }
+
+  // --- Test: send fake post to webhook (email + WhatsApp alert) ---
 
   async testRealPosts(breweryId: string): Promise<void> {
     const brewery = this.breweries.find(b => b.id === breweryId);
     if (!brewery) return;
-
-    if (!this.config.apifyApiToken) {
-      this.addEvent(brewery.id, 'error', 'Cannot test — add your Apify API token in Config first.');
-      this.notify();
-      return;
-    }
-
-    const rawActorId = (this.config.apifyActorId || '').trim() || 'apify/instagram-post-scraper';
-    const actorId = rawActorId.replace('/', '~');
-
-    try {
-      this.addEvent(brewery.id, 'poll', `🧪 TEST: Using Apify actor: ${rawActorId || '(default post-scraper)'}`);
-      this.addEvent(brewery.id, 'poll', `🧪 TEST: Fetching real posts from @${brewery.instagramHandle}...`);
-      this.notify();
-
-      const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${encodeURIComponent(this.config.apifyApiToken)}&format=json`;
-      const input = this.buildApifyInput(brewery.instagramHandle, 15, rawActorId);
-      const res = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
-      });
-
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        throw new Error(`Apify HTTP ${res.status}: ${errText.substring(0, 200)}`);
-      }
-
-      const rawText = await res.text();
-      this.addEvent(brewery.id, 'poll', `🧪 RAW RESPONSE (${rawText.length} chars): ${rawText.substring(0, 600)}`);
-
-      let rawResults: Array<Record<string, unknown>>;
-      try {
-        const parsed = JSON.parse(rawText);
-        rawResults = Array.isArray(parsed) ? parsed : [parsed];
-      } catch {
-        throw new Error(`Invalid JSON from Apify: ${rawText.substring(0, 200)}`);
-      }
-
-      this.addEvent(brewery.id, 'poll', `🧪 Parsed ${rawResults.length} top-level items`);
-
-      const posts: Array<Record<string, unknown>> = [];
-      for (const r of rawResults) {
-        const keys = Object.keys(r);
-        const arrayFields = keys.filter(k => Array.isArray(r[k]));
-        const arrayLengths = arrayFields.map(k => `${k}(${(r[k] as unknown[]).length})`).join(', ');
-        this.addEvent(brewery.id, 'poll', `🧪 Item keys: ${keys.join(', ')} | Arrays: ${arrayLengths || 'NONE'}`);
-
-        if (Array.isArray(r.latestPosts) && (r.latestPosts as unknown[]).length > 0) {
-          posts.push(...(r.latestPosts as Array<Record<string, unknown>>));
-        } else if (Array.isArray(r.posts) && (r.posts as unknown[]).length > 0) {
-          posts.push(...(r.posts as Array<Record<string, unknown>>));
-        } else if (Array.isArray(r.items) && (r.items as unknown[]).length > 0) {
-          posts.push(...(r.items as Array<Record<string, unknown>>));
-        } else if (Array.isArray(r.media) && (r.media as unknown[]).length > 0) {
-          posts.push(...(r.media as Array<Record<string, unknown>>));
-        } else if (Array.isArray(r.data) && (r.data as unknown[]).length > 0) {
-          posts.push(...(r.data as Array<Record<string, unknown>>));
-        } else if (r.caption || r.text || r.node) {
-          posts.push(r);
-        }
-      }
-      this.addEvent(brewery.id, 'poll', `🧪 TEST: Got ${posts.length} posts from @${brewery.instagramHandle}`);
-
-      const isProfileShape = rawResults.length > 0 && rawResults.some(r => 'biography' in r && 'latestPosts' in r);
-      if (posts.length === 0 && isProfileShape) {
-        this.addEvent(brewery.id, 'poll',
-          `⚠️ Post scraper returned profile-only (0 posts) for this account — Instagram or the actor may be limiting. Run the same input in Apify Console to confirm; for “link in post” ordering you need an actor that returns post captions.`);
-      }
-
-      const patterns = brewery.paymentProvider
-        ? brewery.paymentProvider.urlPatterns
-        : (brewery.shopUrlPatterns || []);
-
-      let foundLinks = 0;
-
-      // When scraper returns profile data with 0 posts, still check bio/link-in-bio (externalUrls + biography)
-      const profileBioUrls: string[] = [];
-      for (const r of rawResults) {
-        const bio = String(r.biography || '');
-        const externalUrls = (r.externalUrls as Array<{ url?: string; lynx_url?: string }>) || [];
-        for (const e of externalUrls) {
-          const u = e?.url || (e?.lynx_url && e.lynx_url.startsWith('http') ? e.lynx_url : '');
-          if (u) profileBioUrls.push(u);
-        }
-        if (bio) {
-          const fromBio = this.extractUrlsFromPost(bio, []);
-          profileBioUrls.push(...fromBio);
-        }
-      }
-      const uniqueBioUrls = [...new Set(profileBioUrls)];
-      if (uniqueBioUrls.length > 0) {
-        this.addEvent(brewery.id, 'poll',
-          `🧪 Profile (bio) links: ${uniqueBioUrls.join(', ')}`);
-        const bioText = uniqueBioUrls.join(' ') + (rawResults.map(r => String(r.biography || '')).join(' '));
-        const matchedBio = this.extractUrlsFromPost(bioText, patterns);
-        if (matchedBio.length > 0) {
-          foundLinks += 1;
-          this.addEvent(brewery.id, 'release_detected',
-            `🧪 TEST: ✅ Found ordering URL in profile bio → ${matchedBio[0]}`,
-            { shopUrl: matchedBio[0], testOnly: true });
-        }
-      }
-      for (let i = 0; i < posts.length; i++) {
-        const item = posts[i];
-
-        const availableFields = Object.keys(item).join(', ');
-        this.addEvent(brewery.id, 'poll',
-          `🧪 POST ${i + 1} fields: ${availableFields}`);
-
-        if (i === 0) {
-          const rawDump = JSON.stringify(item, null, 0).substring(0, 500);
-          this.addEvent(brewery.id, 'poll',
-            `🧪 POST 1 RAW DATA: ${rawDump}`);
-        }
-
-        const caption = String(item.caption || item.text || item.alt || '');
-        const postUrl = String(item.url || item.displayUrl || item.postUrl || item.link || `https://instagram.com/p/${item.shortCode || item.id}`);
-
-        const allText = [
-          caption,
-          String(item.url || ''),
-          String(item.link || ''),
-          String(item.displayUrl || ''),
-          String(item.postUrl || ''),
-          ...(Array.isArray(item.hashtags) ? item.hashtags.map(String) : []),
-        ].join(' ');
-
-        const allUrls = this.extractUrlsFromPost(allText, []);
-        const matchedUrls = this.extractUrlsFromPost(allText, patterns);
-
-        this.addEvent(brewery.id, 'poll',
-          `🧪 POST ${i + 1}: Caption (${caption.length} chars): "${caption.substring(0, 150)}${caption.length > 150 ? '...' : ''}"  |  All URLs found: ${allUrls.length > 0 ? allUrls.join(', ') : 'NONE'}  |  Matched URLs (${patterns.join('/')}): ${matchedUrls.length > 0 ? matchedUrls.join(', ') : 'NONE'}`,
-          { postUrl });
-
-        if (matchedUrls.length > 0) {
-          foundLinks++;
-          this.addEvent(brewery.id, 'release_detected',
-            `🧪 TEST: ✅ Found ordering URL → ${matchedUrls[0]}`,
-            { postUrl, shopUrl: matchedUrls[0], testOnly: true });
-        }
-      }
-
-      const bioNote = posts.length === 0 && uniqueBioUrls.length > 0
-        ? ` Profile has ${uniqueBioUrls.length} bio link(s) — see above.`
-        : posts.length === 0
-          ? ' No posts returned by scraper; check Activity for raw profile data.'
-          : '';
-      this.addEvent(brewery.id, 'poll',
-        `🧪 TEST COMPLETE: Scanned ${posts.length} posts, found ${foundLinks} with ordering URLs.${bioNote} ${foundLinks > 0 ? 'Click the links in Activity to verify they work!' : patterns.length > 0 ? 'No ordering URLs matched your patterns — Troon may use link in bio or stories.' : ''}`);
-
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.addEvent(brewery.id, 'error', `🧪 TEST failed: ${msg}`);
-    }
-
-    this.notify();
+    await this.testWebhookAlert(brewery);
   }
 
   // --- Simulate a release (for demo/testing) ---

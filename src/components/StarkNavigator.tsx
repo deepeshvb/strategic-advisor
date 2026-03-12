@@ -4,6 +4,7 @@ import { TrendingUp, Zap, Clock, Save, RefreshCw, AlertCircle, CheckCircle } fro
 interface StarkConfig {
   enabled: boolean;
   criteria: string;
+  symbolsToMonitor: string;
   dailyScheduleEnabled: boolean;
   dailyScheduleTime: string;
   hotAlertEnabled: boolean;
@@ -15,12 +16,17 @@ interface Recommendation {
   action: string;
   reason?: string;
   hot?: boolean;
+  rank?: number;
+  buyAtOrBelow?: number | null;
+  avoidAbove?: number | null;
+  priceGuidance?: string | null;
 }
 
 export default function StarkNavigator() {
   const [config, setConfig] = useState<StarkConfig>({
     enabled: false,
     criteria: '',
+    symbolsToMonitor: '',
     dailyScheduleEnabled: false,
     dailyScheduleTime: '08:00',
     hotAlertEnabled: true,
@@ -31,6 +37,8 @@ export default function StarkNavigator() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [hotCount, setHotCount] = useState(0);
+  const [bestBet, setBestBet] = useState<string | null>(null);
+  const [bestBetSummary, setBestBetSummary] = useState<string | null>(null);
   const [fetchingRecs, setFetchingRecs] = useState(false);
   const [purchaseDescription, setPurchaseDescription] = useState('');
   const [purchaseResult, setPurchaseResult] = useState<{ action: string; reason: string; hot: boolean } | null>(null);
@@ -46,6 +54,7 @@ export default function StarkNavigator() {
         setConfig({
           enabled: sn.enabled === true,
           criteria: sn.criteria ?? '',
+          symbolsToMonitor: sn.symbolsToMonitor ?? '',
           dailyScheduleEnabled: sn.dailyScheduleEnabled === true,
           dailyScheduleTime: sn.dailyScheduleTime ?? '08:00',
           hotAlertEnabled: sn.hotAlertEnabled !== false,
@@ -124,7 +133,9 @@ export default function StarkNavigator() {
       if (res.ok && data.success) {
         setRecommendations(data.recommendations || []);
         setHotCount((data.hot || []).length);
-        setMessage({ type: 'success', text: `Got ${(data.recommendations || []).length} recommendations. ${(data.hot || []).length ? 'Hot alerts sent to WhatsApp + email.' : ''}` });
+        setBestBet(data.bestBet || null);
+        setBestBetSummary(data.bestBetSummary || null);
+        setMessage({ type: 'success', text: `Got ${(data.recommendations || []).length} recommendations. ${data.bestBet ? `Best bet: ${data.bestBet}. ` : ''}${(data.hot || []).length ? 'Alerts sent to WhatsApp + email.' : ''}` });
       } else {
         setMessage({ type: 'error', text: data.error || 'Failed to get recommendations.' });
       }
@@ -174,11 +185,22 @@ export default function StarkNavigator() {
             <textarea
               value={config.criteria}
               onChange={(e) => setConfig((c) => ({ ...c, criteria: e.target.value }))}
-              placeholder="e.g. Investments: moderate risk; tech and healthcare; long-term. Big purchases: cars – prefer CPO, low mileage; wine – collectible only; real estate – 3br in X area, max $Y; prefer quality over price."
+              placeholder="e.g. High risk only. Data center and AI stocks only. Low cost with very high return on investment. Or: moderate risk; tech and healthcare; long-term. For big purchases: cars – CPO, low mileage; wine – collectible; real estate – 3br, max $Y."
               className="config-input w-full min-h-[100px]"
               rows={4}
             />
-            <p className="text-xs text-gray-500 mt-1">Used by AI for both stock recommendations and big-purchase advice (cars, wine, real estate, etc.). Leave blank for general moderate-risk guidance.</p>
+            <p className="text-xs text-gray-500 mt-1">Drives all recommendations: stocks are evaluated only against this (e.g. high risk, data center & AI, low cost / high return). Also used for big-purchase advice.</p>
+          </div>
+          <div>
+            <label className="config-label">Symbols to monitor (optional)</label>
+            <input
+              type="text"
+              value={config.symbolsToMonitor}
+              onChange={(e) => setConfig((c) => ({ ...c, symbolsToMonitor: e.target.value }))}
+              placeholder="Leave blank for default: NVDA, AMD, AVGO, SMCI, PLTR (data center & AI)"
+              className="config-input w-full"
+            />
+            <p className="text-xs text-gray-500 mt-1">Comma-separated tickers. Blank = default data center & AI list. Max 5 per run (API limit).</p>
           </div>
 
           <div className="pt-4 border-t border-gray-700">
@@ -302,13 +324,21 @@ export default function StarkNavigator() {
 
         {recommendations.length > 0 && (
           <div className="mt-6 pt-6 border-t border-gray-700">
+            {bestBet && bestBetSummary && (
+              <div className="mb-4 p-3 rounded-lg bg-amber-900/20 border border-amber-600/40">
+                <h4 className="text-sm font-medium text-amber-400 mb-1">Best bet</h4>
+                <p className="text-sm font-medium text-white">{bestBet}</p>
+                <p className="text-sm text-gray-400 mt-1">{bestBetSummary}</p>
+              </div>
+            )}
             <h4 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
               <CheckCircle size={16} className="text-green-500" />
-              Latest recommendations
+              All {recommendations.length} recommendations
             </h4>
             <ul className="space-y-2">
               {recommendations.map((r, i) => (
                 <li key={`${r.symbol}-${i}`} className="flex flex-wrap items-center gap-2 p-3 rounded-lg bg-gray-800/50 border border-gray-700/50">
+                  <span className="text-gray-500 font-mono text-sm w-6 shrink-0">{r.rank != null && r.rank < 90 ? r.rank : i + 1}.</span>
                   <span className="font-mono font-medium text-white">{r.symbol}</span>
                   {r.name && <span className="text-gray-400 text-sm">{r.name}</span>}
                   <span className={`text-sm font-medium px-2 py-0.5 rounded ${
@@ -319,10 +349,23 @@ export default function StarkNavigator() {
                   </span>
                   {r.hot && (
                     <span className="flex items-center gap-1 text-xs font-medium text-amber-400 bg-amber-900/30 px-2 py-0.5 rounded">
-                      <AlertCircle size={12} /> HOT
+                      <AlertCircle size={12} /> BEST BET
                     </span>
                   )}
                   {r.reason && <span className="text-sm text-gray-500 w-full mt-1">{r.reason}</span>}
+                  {(r.priceGuidance || r.buyAtOrBelow != null || r.avoidAbove != null) && (
+                    <div className="w-full mt-2 pt-2 border-t border-gray-700/50 text-sm text-gray-400">
+                      {r.priceGuidance ? (
+                        <span>{r.priceGuidance}</span>
+                      ) : (
+                        <span>
+                          {r.buyAtOrBelow != null && <>Buy at or below ${r.buyAtOrBelow}</>}
+                          {r.buyAtOrBelow != null && r.avoidAbove != null && ' · '}
+                          {r.avoidAbove != null && <>Avoid above ${r.avoidAbove}</>}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

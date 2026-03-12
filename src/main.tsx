@@ -14,14 +14,15 @@ function showFallback(message: string, error?: unknown) {
   </div>`
 }
 
-async function bootstrap() {
+import App from './App'
+
+function bootstrap() {
   const rootEl = document.getElementById('root')
   if (!rootEl) {
     document.body.innerHTML = '<div style="padding:24px;color:red">No root element found</div>'
     return
   }
   try {
-    const { default: App } = await import('./App.tsx')
     ReactDOM.createRoot(rootEl).render(
       <React.StrictMode>
         <App />

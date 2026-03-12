@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Beer,
   Plus,
@@ -683,8 +683,9 @@ function BreweryCard({
             <button
               onClick={() => beerMuleService.testRealPosts(brewery.id)}
               className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded text-xs font-medium transition-colors flex items-center gap-1"
+              title="Send test post to webhook (email + WhatsApp)"
             >
-              <Search className="w-3 h-3" /> Test Real Posts
+              <Search className="w-3 h-3" /> Test Webhook Alert
             </button>
             <button
               onClick={() => beerMuleService.simulateRelease(brewery.id)}
@@ -835,36 +836,235 @@ function AddBeerForm({ breweryId, onClose }: { breweryId: string; onClose: () =>
   );
 }
 
+function formatPollTimeAgo(iso: string): string {
+  const d = new Date(iso);
+  const sec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (sec < 60) return 'just now';
+  if (sec < 3600) return `${Math.floor(sec / 60)} min ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)} hr ago`;
+  return `${Math.floor(sec / 86400)} day(s) ago`;
+}
+function formatPollTimeNext(iso: string): string {
+  const d = new Date(iso);
+  const sec = Math.max(0, Math.floor((d.getTime() - Date.now()) / 1000));
+  if (sec < 60) return 'in a moment';
+  if (sec < 3600) return `in ${Math.floor(sec / 60)} min`;
+  if (sec < 86400) return `in ${Math.floor(sec / 3600)} hr`;
+  return `at ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
+}
+
 // ---------------------------------------------------------------------------
-// Beer Hunts Tab — track beers by name at bars/restaurants in your area
+// Beer Hunts Tab — tracking via Untappd (API now requires commercial agreement)
 // ---------------------------------------------------------------------------
 function BeerHuntsTab() {
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingHuntId, setEditingHuntId] = useState<string | null>(null);
+  const [backendSightings, setBackendSightings] = useState<BeerSighting[]>([]);
+  const [sightingsLoading, setSightingsLoading] = useState(false);
+  const [runPollLoading, setRunPollLoading] = useState(false);
+  const [pollStatus, setPollStatus] = useState<{ lastPollAt?: string; nextPollAt?: string; scheduleMode?: string; intervalSeconds?: number; dailyTime?: string } | null>(null);
+  const [reportSightingHuntId, setReportSightingHuntId] = useState<string | null>(null);
   const hunts = beerMuleService.getHunts();
-  const sightings = beerMuleService.getSightings();
+  const config = beerMuleService.getConfig();
+
+  const syncKey = useMemo(
+    () =>
+      JSON.stringify({
+        huntIds: hunts.map((h) => h.id),
+        sources: hunts.map((h) => (h.sources || []).join(',')),
+        interval: config.beerHuntPollIntervalSeconds ?? 300,
+        mode: config.beerHuntScheduleMode ?? 'interval',
+        daily: config.beerHuntDailyTime ?? '09:00',
+      }),
+    [hunts, config.beerHuntPollIntervalSeconds, config.beerHuntScheduleMode, config.beerHuntDailyTime]
+  );
+
+  const syncAndFetchSightings = useCallback(async () => {
+    const currentHunts = beerMuleService.getHunts();
+    const currentConfig = beerMuleService.getConfig();
+    setSightingsLoading(true);
+    try {
+      const huntsPayload = currentHunts.map((h) => ({
+        ...h,
+        createdAt: h.createdAt instanceof Date ? h.createdAt.toISOString() : h.createdAt,
+      }));
+      await fetch('/api/beer-mule/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hunts: huntsPayload,
+          config: {
+            beerHuntPollIntervalSeconds: currentConfig.beerHuntPollIntervalSeconds ?? 300,
+            alertWhatsAppNumber: currentConfig.alertWhatsAppNumber ?? '',
+            beerHuntScheduleMode: currentConfig.beerHuntScheduleMode ?? 'interval',
+            beerHuntDailyTime: currentConfig.beerHuntDailyTime ?? '09:00',
+          },
+        }),
+      });
+      const res = await fetch('/api/beer-mule/sightings');
+      const data = await res.json();
+      if (data.sightings) {
+        setBackendSightings(
+          data.sightings.map((s: BeerSighting & { detectedAt?: string }) => ({
+            ...s,
+            detectedAt: typeof s.detectedAt === 'string' ? new Date(s.detectedAt) : (s.detectedAt ?? new Date()),
+          }))
+        );
+      }
+      try {
+        const statusRes = await fetch('/api/beer-mule/status');
+        const statusData = await statusRes.json();
+        if (statusData.lastPollAt !== undefined || statusData.nextPollAt !== undefined)
+          setPollStatus({
+            lastPollAt: statusData.lastPollAt,
+            nextPollAt: statusData.nextPollAt,
+            scheduleMode: statusData.scheduleMode,
+            intervalSeconds: statusData.intervalSeconds,
+            dailyTime: statusData.dailyTime,
+          });
+      } catch {
+        setPollStatus(null);
+      }
+    } catch {
+      setBackendSightings([]);
+    } finally {
+      setSightingsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    syncAndFetchSightings();
+  }, [syncKey, syncAndFetchSightings]);
+
+  const runPollNow = async () => {
+    setRunPollLoading(true);
+    try {
+      await fetch('/api/beer-mule/run-poll', { method: 'POST' });
+      await syncAndFetchSightings();
+    } finally {
+      setRunPollLoading(false);
+    }
+  };
+
+  const updateSchedule = (patch: Partial<BeerMuleConfig>) => {
+    beerMuleService.updateConfig(patch);
+    syncAndFetchSightings();
+  };
+
+  const scheduleMode = config.beerHuntScheduleMode ?? 'interval';
+  const intervalMinutes = Math.max(1, Math.round((config.beerHuntPollIntervalSeconds ?? 300) / 60));
+  const intervalOptions = [5, 15, 30, 60, 120, 360, 720];
 
   return (
     <>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h3 className="text-lg font-semibold text-white">Beer Hunts</h3>
-          <p className="text-xs text-gray-400 mt-0.5">Track specific beers at bars & restaurants near you. Get WhatsApp alerts when spotted.</p>
+          <p className="text-xs text-gray-400 mt-0.5">Track beers via <strong>Catalog.beer</strong> (free API — brewery taprooms), <strong>manual</strong> (report where you found it), or Untappd (commercial API). Enable sources per hunt below.</p>
         </div>
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium transition-colors"
-        >
-          <Plus className="w-4 h-4" /> Add Beer Hunt
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={runPollNow}
+            disabled={runPollLoading || hunts.length === 0}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium flex items-center gap-1.5"
+          >
+            {runPollLoading ? <Clock className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+            {runPollLoading ? 'Polling…' : 'Run poll now'}
+          </button>
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium transition-colors"
+          >
+            <Plus className="w-4 h-4" /> Add Beer Hunt
+          </button>
+        </div>
       </div>
 
-      {showAddForm && <AddBeerHuntForm onClose={() => setShowAddForm(false)} />}
+      {/* Schedule: how often the backend polls enabled sources */}
+      <div className="bg-slate-800/80 rounded-lg border border-slate-700 p-4">
+        <h4 className="text-sm font-medium text-amber-400 mb-2 flex items-center gap-2">
+          <Clock className="w-4 h-4" /> Poll schedule
+        </h4>
+        <p className="text-xs text-gray-400 mb-3">How often the backend checks your enabled sources (Catalog.beer, Untappd if configured) for each hunt.</p>
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-400 whitespace-nowrap">Schedule:</label>
+            <select
+              value={scheduleMode}
+              onChange={e => updateSchedule({ beerHuntScheduleMode: e.target.value === 'daily' ? 'daily' : 'interval' })}
+              className="bg-slate-700 text-white rounded px-3 py-1.5 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+            >
+              <option value="interval">Every X minutes</option>
+              <option value="daily">Once daily</option>
+            </select>
+          </div>
+          {scheduleMode === 'daily' ? (
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-400 whitespace-nowrap">Time (24h):</label>
+              <input
+                type="time"
+                value={config.beerHuntDailyTime ?? '09:00'}
+                onChange={e => updateSchedule({ beerHuntDailyTime: e.target.value })}
+                className="bg-slate-700 text-white rounded px-3 py-1.5 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+              />
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-400 whitespace-nowrap">Interval:</label>
+              <select
+                value={intervalMinutes}
+                onChange={e => updateSchedule({ beerHuntPollIntervalSeconds: Number(e.target.value) * 60 })}
+                className="bg-slate-700 text-white rounded px-3 py-1.5 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+              >
+                {!intervalOptions.includes(intervalMinutes) && (
+                  <option value={intervalMinutes}>Every {intervalMinutes} min</option>
+                )}
+                {intervalOptions.map(m => (
+                  <option key={m} value={m}>
+                    {m < 60 ? `Every ${m} min` : m === 60 ? 'Every 1 hour' : `Every ${m / 60} hours`}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+        <p className="text-xs text-gray-500 mt-2">
+          {scheduleMode === 'daily'
+            ? `Backend will run once per day at ${config.beerHuntDailyTime ?? '09:00'} (server time).`
+            : `Backend polls every ${intervalMinutes} min. Change here or in Config.`}
+          {' '}
+          Results appear after the next poll (or at the next daily run). Use &quot;Run poll now&quot; to check immediately.
+        </p>
+        {pollStatus && (pollStatus.lastPollAt || pollStatus.nextPollAt) && (
+          <p className="text-xs text-amber-200/90 mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
+            {pollStatus.lastPollAt && (
+              <span title={pollStatus.lastPollAt}>
+                Last poll: {formatPollTimeAgo(pollStatus.lastPollAt)}
+              </span>
+            )}
+            {pollStatus.nextPollAt && (
+              <span title={pollStatus.nextPollAt}>
+                Next poll: {formatPollTimeNext(pollStatus.nextPollAt)}
+              </span>
+            )}
+          </p>
+        )}
+      </div>
+
+      {showAddForm && <BeerHuntForm onClose={() => setShowAddForm(false)} />}
+      {editingHuntId && (
+        <BeerHuntForm
+          initialHunt={hunts.find(h => h.id === editingHuntId) ?? null}
+          onClose={() => setEditingHuntId(null)}
+        />
+      )}
 
       {hunts.length === 0 ? (
         <div className="text-center py-16 text-gray-500">
           <Search className="w-12 h-12 mx-auto mb-3 opacity-40" />
           <p className="text-lg font-medium text-gray-400">No beer hunts yet</p>
           <p className="text-sm mt-1">Add a beer to track at local bars, pubs, and restaurants.</p>
+          <p className="text-xs text-gray-500 mt-2">Use <strong>Catalog.beer</strong> (free at catalog.beer) for brewery taproom locations, or <strong>manual</strong> to record where you found a beer. WhatsApp: &quot;Track beer [name]&quot; or &quot;Beer hunt status&quot;.</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -894,18 +1094,26 @@ function BeerHuntsTab() {
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <button
+                    onClick={() => setReportSightingHuntId(prev => prev === hunt.id ? null : hunt.id)}
+                    className={`px-2 py-1 rounded text-xs font-medium ${reportSightingHuntId === hunt.id ? 'bg-amber-600 text-white' : 'bg-slate-600 hover:bg-slate-500 text-white'}`}
+                    title="Report where you found this beer"
+                  >
+                    Report sighting
+                  </button>
+                  <button
+                    onClick={() => setEditingHuntId(hunt.id)}
+                    className="px-2 py-1 bg-slate-600 hover:bg-slate-500 text-white rounded text-xs font-medium"
+                    title="Edit hunt"
+                  >
+                    Edit
+                  </button>
+                  <button
                     onClick={() => beerMuleService.updateHunt(hunt.id, { enabled: !hunt.enabled })}
                     className={`px-2 py-1 rounded text-xs font-medium ${
                       hunt.enabled ? 'bg-green-600 text-white' : 'bg-slate-700 text-gray-400'
                     }`}
                   >
                     {hunt.enabled ? '✓ Active' : 'Paused'}
-                  </button>
-                  <button
-                    onClick={() => beerMuleService.simulateSighting(hunt.id)}
-                    className="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs font-medium flex items-center gap-1"
-                  >
-                    <Zap className="w-3 h-3" /> Simulate
                   </button>
                   <button
                     onClick={() => { if (confirm(`Remove hunt for "${hunt.beerName}"?`)) beerMuleService.removeHunt(hunt.id); }}
@@ -916,26 +1124,56 @@ function BeerHuntsTab() {
                 </div>
               </div>
 
-              {/* Sightings for this hunt */}
+              {/* Sightings for this hunt (from backend) */}
               {(() => {
-                const huntSightings = sightings.filter(s => s.huntId === hunt.id);
+                const huntSightings = backendSightings.filter(s => s.huntId === hunt.id);
+                const clearSightings = async () => {
+                  if (!confirm(`Clear all ${huntSightings.length} sighting(s) for "${hunt.beerName}"? This cannot be undone.`)) return;
+                  try {
+                    const res = await fetch('/api/beer-mule/sightings/clear', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ huntId: hunt.id }),
+                    });
+                    const data = await res.json();
+                    if (data.success) await syncAndFetchSightings();
+                  } catch (_) {}
+                };
+                const huntSources = hunt.sources || [];
+                const usesPoll = huntSources.includes('catalogbeer') || huntSources.includes('untappd');
+                if (sightingsLoading) return <p className="text-xs text-gray-500 mt-3">Loading sightings…</p>;
                 if (huntSightings.length === 0) return (
-                  <p className="text-xs text-gray-600 mt-3 italic">No sightings yet. Click "Simulate" to test.</p>
+                  <p className="text-xs text-gray-600 mt-3 italic">
+                    No sightings yet. {usesPoll ? 'Backend polls your enabled sources on the schedule above; use &quot;Run poll now&quot; or &quot;Report sighting&quot; to add one.' : 'Use &quot;Report sighting&quot; or enable Catalog.beer and run a poll.'}
+                  </p>
                 );
                 return (
                   <div className="mt-3 space-y-2">
-                    <h5 className="text-xs text-gray-400 font-medium">Recent Sightings</h5>
-                    {huntSightings.slice(0, 5).map(s => (
+                    <div className="flex items-center justify-between">
+                      <h5 className="text-xs text-gray-400 font-medium">Recent Sightings</h5>
+                      <button
+                        type="button"
+                        onClick={clearSightings}
+                        className="text-xs text-amber-400 hover:text-amber-300"
+                        title="Remove all sightings for this hunt (e.g. incorrect or old)"
+                      >
+                        Clear sightings
+                      </button>
+                    </div>
+                    {huntSightings.slice(0, 10).map(s => (
                       <div key={s.id} className="flex items-center justify-between bg-slate-700/50 rounded px-3 py-2">
                         <div>
                           <span className="text-sm text-white">{s.venueName}</span>
                           <span className="text-xs text-gray-500 ml-2">({s.venueType})</span>
                           {s.venueAddress && <p className="text-xs text-gray-500">{s.venueAddress}</p>}
+                          {s.sourceUrl && (
+                            <a href={s.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-amber-400 hover:underline mt-0.5 inline-block">View source</a>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 text-xs flex-shrink-0">
                           <span className="text-gray-500">{s.source}</span>
                           {s.alertSent && <span className="text-green-400">✓ alerted</span>}
-                          <span className="text-gray-600">{s.detectedAt.toLocaleString()}</span>
+                          <span className="text-gray-600">{s.detectedAt instanceof Date ? s.detectedAt.toLocaleString() : String(s.detectedAt)}</span>
                         </div>
                       </div>
                     ))}
@@ -951,17 +1189,102 @@ function BeerHuntsTab() {
 }
 
 // ---------------------------------------------------------------------------
-// Add Beer Hunt Form
+// Report Sighting (manual) — add a sighting for a hunt
 // ---------------------------------------------------------------------------
-function AddBeerHuntForm({ onClose }: { onClose: () => void }) {
-  const [beerName, setBeerName] = useState('');
-  const [breweryName, setBreweryName] = useState('');
-  const [style, setStyle] = useState('');
-  const [searchArea, setSearchArea] = useState('');
-  const [radiusMiles, setRadiusMiles] = useState(15);
-  const [sources, setSources] = useState<BeerHuntSource[]>(['untappd', 'beermenus', 'instagram']);
-  const [alertWhatsApp, setAlertWhatsApp] = useState(true);
-  const [whatsAppNumber, setWhatsAppNumber] = useState('');
+function ReportSightingForm({
+  huntId,
+  beerName,
+  onDone,
+  onCancel,
+}: {
+  huntId: string;
+  beerName: string;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [venueName, setVenueName] = useState('');
+  const [venueAddress, setVenueAddress] = useState('');
+  const [sourceUrl, setSourceUrl] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    if (!venueName.trim()) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/beer-mule/sightings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          huntId,
+          venueName: venueName.trim(),
+          venueAddress: venueAddress.trim() || undefined,
+          sourceUrl: sourceUrl.trim() || undefined,
+          venueType: 'bar',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to add sighting');
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 p-3 bg-slate-700/50 rounded-lg border border-slate-600 space-y-2">
+      <h5 className="text-xs font-medium text-amber-400">Report sighting for {beerName}</h5>
+      <input
+        value={venueName}
+        onChange={e => setVenueName(e.target.value)}
+        placeholder="Venue name *"
+        className="w-full bg-slate-700 text-white rounded px-2 py-1.5 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+      />
+      <input
+        value={venueAddress}
+        onChange={e => setVenueAddress(e.target.value)}
+        placeholder="Address (optional)"
+        className="w-full bg-slate-700 text-white rounded px-2 py-1.5 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+      />
+      <input
+        value={sourceUrl}
+        onChange={e => setSourceUrl(e.target.value)}
+        placeholder="Link (optional)"
+        className="w-full bg-slate-700 text-white rounded px-2 py-1.5 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+      />
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      <div className="flex gap-2">
+        <button
+          onClick={handleSubmit}
+          disabled={submitting || !venueName.trim()}
+          className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded text-xs font-medium"
+        >
+          {submitting ? 'Adding…' : 'Add sighting'}
+        </button>
+        <button onClick={onCancel} className="px-3 py-1.5 text-gray-400 hover:text-white text-xs">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Add / Edit Beer Hunt Form
+// ---------------------------------------------------------------------------
+function BeerHuntForm({ onClose, initialHunt }: { onClose: () => void; initialHunt?: BeerHunt | null }) {
+  const isEdit = !!initialHunt;
+  const [beerName, setBeerName] = useState(initialHunt?.beerName ?? '');
+  const [breweryName, setBreweryName] = useState(initialHunt?.breweryName ?? '');
+  const [style, setStyle] = useState(initialHunt?.style ?? '');
+  const [searchArea, setSearchArea] = useState(initialHunt?.searchArea ?? '');
+  const [radiusMiles, setRadiusMiles] = useState(initialHunt?.radiusMiles ?? 15);
+  const [sources, setSources] = useState<BeerHuntSource[]>(initialHunt?.sources ?? ['catalogbeer', 'manual']);
+  const [alertWhatsApp, setAlertWhatsApp] = useState(initialHunt?.alertWhatsApp ?? true);
+  const [whatsAppNumber, setWhatsAppNumber] = useState(initialHunt?.whatsAppNumber ?? '');
 
   const toggleSource = (src: BeerHuntSource) => {
     setSources(prev => prev.includes(src) ? prev.filter(s => s !== src) : [...prev, src]);
@@ -969,7 +1292,7 @@ function AddBeerHuntForm({ onClose }: { onClose: () => void }) {
 
   const handleSubmit = () => {
     if (!beerName.trim() || !searchArea.trim()) return;
-    beerMuleService.addHunt({
+    const payload = {
       beerName: beerName.trim(),
       breweryName: breweryName.trim() || undefined,
       style: style.trim() || undefined,
@@ -978,14 +1301,16 @@ function AddBeerHuntForm({ onClose }: { onClose: () => void }) {
       sources,
       alertWhatsApp,
       whatsAppNumber: whatsAppNumber.trim(),
-      enabled: true,
-    });
+      ...(isEdit ? {} : { enabled: true }),
+    };
+    if (isEdit && initialHunt) beerMuleService.updateHunt(initialHunt.id, payload);
+    else beerMuleService.addHunt(payload as Parameters<typeof beerMuleService.addHunt>[0]);
     onClose();
   };
 
   return (
     <div className="bg-slate-800 rounded-lg border border-slate-700 p-5 space-y-4">
-      <h4 className="text-white font-semibold">Track a Beer at Local Venues</h4>
+      <h4 className="text-white font-semibold">{isEdit ? 'Edit Beer Hunt' : 'Track a Beer at Local Venues'}</h4>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
@@ -1044,7 +1369,7 @@ function AddBeerHuntForm({ onClose }: { onClose: () => void }) {
       <div>
         <label className="block text-sm text-gray-400 mb-2">Scan Sources</label>
         <div className="flex gap-2 flex-wrap">
-          {(['untappd', 'beermenus', 'instagram', 'manual'] as BeerHuntSource[]).map(src => (
+          {(['catalogbeer', 'untappd', 'beermenus', 'instagram', 'manual'] as BeerHuntSource[]).map(src => (
             <button
               key={src}
               onClick={() => toggleSource(src)}
@@ -1052,7 +1377,7 @@ function AddBeerHuntForm({ onClose }: { onClose: () => void }) {
                 sources.includes(src) ? 'bg-amber-600 text-white' : 'bg-slate-700 text-gray-400 hover:bg-slate-600'
               }`}
             >
-              {src === 'untappd' ? 'Untappd' : src === 'beermenus' ? 'BeerMenus' : src === 'instagram' ? 'Instagram' : 'Manual'}
+              {src === 'catalogbeer' ? 'Catalog.beer' : src === 'untappd' ? 'Untappd' : src === 'beermenus' ? 'BeerMenus' : src === 'instagram' ? 'Instagram' : 'Manual'}
             </button>
           ))}
         </div>
@@ -1089,7 +1414,7 @@ function AddBeerHuntForm({ onClose }: { onClose: () => void }) {
           disabled={!beerName.trim() || !searchArea.trim()}
           className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-600 text-white rounded-lg text-sm font-medium transition-colors"
         >
-          Start Hunting
+          {isEdit ? 'Save changes' : 'Start Hunting'}
         </button>
       </div>
     </div>
@@ -1305,16 +1630,195 @@ function PaymentMethodsManager({ config, onSave }: { config: BeerMuleConfig; onS
 }
 
 // ---------------------------------------------------------------------------
+// Paste Troon post → send to email + WhatsApp
+// ---------------------------------------------------------------------------
+function PasteTroonPostForm() {
+  const [caption, setCaption] = useState('');
+  const [url, setUrl] = useState('');
+  const [status, setStatus] = useState<'idle' | 'sending' | 'ok' | 'error'>('idle');
+  const [message, setMessage] = useState('');
+
+  const handleSend = useCallback(async () => {
+    const text = (caption || '').trim();
+    if (!text) {
+      setMessage('Paste the post text first.');
+      setStatus('error');
+      return;
+    }
+    setStatus('sending');
+    setMessage('');
+    try {
+      const res = await fetch('/api/beermule/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: 'troonbrewing',
+          caption: text,
+          url: (url || '').trim() || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success !== false) {
+        setStatus('ok');
+        setMessage('Sent to your email and WhatsApp.');
+        setCaption('');
+        setUrl('');
+      } else {
+        setStatus('error');
+        setMessage(data.error || data.message || `Request failed (${res.status})`);
+      }
+    } catch (e) {
+      setStatus('error');
+      setMessage(e instanceof Error ? e.message : 'Request failed');
+    }
+    setTimeout(() => setStatus('idle'), 4000);
+  }, [caption, url]);
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Post text (paste full caption)</label>
+        <textarea
+          value={caption}
+          onChange={e => setCaption(e.target.value)}
+          placeholder="Paste Troon's full post here..."
+          rows={5}
+          className="w-full bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none resize-y"
+        />
+      </div>
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Ordering URL (optional)</label>
+        <input
+          type="text"
+          value={url}
+          onChange={e => setUrl(e.target.value)}
+          placeholder="e.g. falsespring.square.site"
+          className="w-full bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
+        />
+      </div>
+      <button
+        type="button"
+        onClick={handleSend}
+        disabled={status === 'sending'}
+        className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
+      >
+        {status === 'sending' ? 'Sending…' : status === 'ok' ? 'Sent' : 'Send to my email & WhatsApp'}
+      </button>
+      {message && (
+        <p className={`text-sm ${status === 'error' ? 'text-red-400' : 'text-green-400'}`}>{message}</p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Config Tab
 // ---------------------------------------------------------------------------
 function ConfigTab() {
   const [config, setConfig] = useState<BeerMuleConfig>(beerMuleService.getConfig());
+  const [backendApify, setBackendApify] = useState<{ apifyActorId: string; pollMinutes: number; hasApifyToken: boolean; apifyTokenMasked: string } | null>(null);
+  const [apifyTokenInput, setApifyTokenInput] = useState('');
+  const [apifySaveStatus, setApifySaveStatus] = useState<'idle' | 'saving' | 'ok' | 'error'>('idle');
+  const [runPollStatus, setRunPollStatus] = useState<'idle' | 'running' | 'ok' | 'error'>('idle');
+  const [runPollError, setRunPollError] = useState('');
+  const [runPollResult, setRunPollResult] = useState('');
+
+  useEffect(() => {
+    fetch('/api/beermule/config')
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (d) {
+          setBackendApify(d);
+          setApifyTokenInput(d.hasApifyToken ? '********' : '');
+          const schedule = {
+            monitoringDays: Array.isArray(d.monitoringDays) ? d.monitoringDays : [],
+            monitoringStartTime: (d.monitoringStartTime || '00:00').trim(),
+            monitoringEndTime: (d.monitoringEndTime || '23:59').trim(),
+          };
+          setConfig((prev) => ({ ...prev, ...schedule }));
+          beerMuleService.updateConfig(schedule);
+        }
+      })
+      .catch(() => setBackendApify(null));
+  }, []);
 
   const save = useCallback((patch: Partial<BeerMuleConfig>) => {
     const next = { ...config, ...patch };
     setConfig(next);
     beerMuleService.updateConfig(patch);
   }, [config]);
+
+  const saveApifyConfig = useCallback(async () => {
+    setApifySaveStatus('saving');
+    try {
+      const body: {
+        apifyApiToken?: string;
+        apifyActorId?: string;
+        pollMinutes?: number;
+        monitoringDays?: number[];
+        monitoringStartTime?: string;
+        monitoringEndTime?: string;
+      } = {
+        apifyActorId: backendApify?.apifyActorId ?? 'apify/instagram-post-scraper',
+        pollMinutes: backendApify?.pollMinutes ?? 5,
+        monitoringDays: config.monitoringDays ?? [],
+        monitoringStartTime: (config.monitoringStartTime || '00:00').trim(),
+        monitoringEndTime: (config.monitoringEndTime || '23:59').trim(),
+      };
+      if (apifyTokenInput !== '' && apifyTokenInput !== '********') body.apifyApiToken = apifyTokenInput;
+      else if (apifyTokenInput === '') body.apifyApiToken = '';
+      const res = await fetch('/api/beermule/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        setApifySaveStatus('ok');
+        const refetch = await fetch('/api/beermule/config').then((r) => (r.ok ? r.json() : null));
+        if (refetch) {
+          setBackendApify(refetch);
+          setApifyTokenInput(refetch.hasApifyToken ? '********' : '');
+        }
+        setTimeout(() => setApifySaveStatus('idle'), 2000);
+      } else {
+        setApifySaveStatus('error');
+        setTimeout(() => setApifySaveStatus('idle'), 3000);
+      }
+    } catch {
+      setApifySaveStatus('error');
+      setTimeout(() => setApifySaveStatus('idle'), 3000);
+    }
+  }, [backendApify, apifyTokenInput, config.monitoringDays, config.monitoringStartTime, config.monitoringEndTime]);
+
+  const runPollNow = useCallback(async (testSendLatest = false) => {
+    setRunPollStatus('running');
+    setRunPollError('');
+    setRunPollResult('');
+    try {
+      const url = testSendLatest ? '/api/beermule/run-poll?test=1' : '/api/beermule/run-poll';
+      const res = await fetch(url, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setRunPollStatus('ok');
+        let result = data.message || '';
+        if (data.emailSent !== undefined || data.whatsAppSent !== undefined) {
+          const emailStatus = data.emailSent === true ? '✓ sent' : (data.emailError || 'not sent (no email config or admin email)');
+          const whatsAppStatus = data.whatsAppSent === true ? '✓ sent' : (data.whatsAppError || 'not sent (no Twilio or admin WhatsApp)');
+          result += ` Email: ${emailStatus}. WhatsApp: ${whatsAppStatus}.`;
+        }
+        setRunPollResult(result);
+        setTimeout(() => setRunPollStatus('idle'), 5000);
+      } else {
+        setRunPollError((data.error || res.statusText || 'Request failed').toString());
+        setRunPollStatus('error');
+        setTimeout(() => setRunPollStatus('idle'), 6000);
+      }
+    } catch (e) {
+      setRunPollError(e instanceof Error ? e.message : 'Network error');
+      setRunPollStatus('error');
+      setTimeout(() => setRunPollStatus('idle'), 6000);
+    }
+  }, []);
 
   return (
     <>
@@ -1365,7 +1869,7 @@ function ConfigTab() {
         <div>
           <h4 className="text-sm text-amber-400 font-semibold mb-3">Monitoring Schedule</h4>
           <p className="text-xs text-gray-500 mb-3">
-            Monitoring runs only on the selected days and between start and end time. It keeps running when you switch console tabs until you click Stop.
+            Instagram (Apify) polling runs only on the selected days and between start and end time. Click <strong>Save Apify config</strong> below to apply.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
@@ -1421,6 +1925,23 @@ function ConfigTab() {
           </div>
         </div>
 
+        {/* Paste Troon post → Email + WhatsApp */}
+        <div className="bg-slate-700/50 border border-slate-600 rounded-lg p-4">
+          <h4 className="text-sm text-amber-400 font-semibold mb-2">Copy Troon post → Email + WhatsApp</h4>
+          <p className="text-xs text-gray-300 mb-3">
+            When Troon posts on Instagram, copy the full post text (and ordering link if any), paste below, and click Send. You’ll get the same post by email and WhatsApp. No automation required.
+          </p>
+          <PasteTroonPostForm />
+        </div>
+
+        {/* Troon / Webhook — for automation */}
+        <div className="bg-slate-700/50 border border-slate-600 rounded-lg p-4">
+          <h4 className="text-sm text-amber-400 font-semibold mb-2">Troon / Instagram Webhook (for automation)</h4>
+          <p className="text-xs text-gray-500">
+            To automate: send POST to <code className="text-amber-400">/api/beermule/webhook</code> with <code className="text-amber-400">username</code>, <code className="text-amber-400">caption</code>, <code className="text-amber-400">url</code> (optional). IFTTT, Zapier, or Apify can call this when Troon posts.
+          </p>
+        </div>
+
         {/* Auto-purchase */}
         <div>
           <h4 className="text-sm text-amber-400 font-semibold mb-3">Auto-Purchase</h4>
@@ -1434,7 +1955,7 @@ function ConfigTab() {
             <span className="text-sm text-white">Enable auto-purchase when a release is detected</span>
           </label>
           <p className="text-xs text-gray-500 mt-1 ml-7">
-            When enabled, Beer Mule will automatically attempt to purchase the max allowed quantity as soon as a release is detected on Instagram.
+            When enabled, Beer Mule will automatically attempt to purchase the max allowed quantity as soon as a release is detected. For Troon we recommend leaving this off and using webhook alerts only.
           </p>
         </div>
 
@@ -1464,51 +1985,133 @@ function ConfigTab() {
         </div>
 
         <div>
-          <h4 className="text-sm text-amber-400 font-semibold mb-3">Beer Hunt Scanning</h4>
-          <label className="block text-xs text-gray-400 mb-1">Scan Interval (seconds)</label>
-          <input
-            type="number"
-            min={60}
-            max={3600}
-            value={config.beerHuntPollIntervalSeconds}
-            onChange={e => save({ beerHuntPollIntervalSeconds: Number(e.target.value) })}
-            className="w-full bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none max-w-xs"
-          />
-          <p className="text-xs text-gray-500 mt-1">
-            How often Beer Mule checks Untappd, BeerMenus, and Instagram for your tracked beers at local venues.
+          <h4 className="text-sm text-amber-400 font-semibold mb-3">Beer Hunt Schedule</h4>
+          <p className="text-xs text-gray-500 mb-3">
+            When to run Beer Hunt polls (Catalog.beer, Untappd if configured). Sync hunts from the Beer Hunts tab so the backend uses this schedule.
           </p>
-        </div>
-
-        {/* Apify Instagram Integration */}
-        <div>
-          <h4 className="text-sm text-amber-400 font-semibold mb-3">Instagram Monitoring (Apify)</h4>
           <div className="space-y-3">
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Apify API Token *</label>
+              <label className="block text-xs text-gray-400 mb-1">Schedule</label>
+              <select
+                value={config.beerHuntScheduleMode ?? 'interval'}
+                onChange={e => save({ beerHuntScheduleMode: e.target.value === 'daily' ? 'daily' : 'interval' })}
+                className="w-full bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none max-w-xs"
+              >
+                <option value="interval">Every X minutes (interval)</option>
+                <option value="daily">Once daily at a set time</option>
+              </select>
+            </div>
+            {config.beerHuntScheduleMode === 'daily' ? (
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Daily run time (24h)</label>
+                <input
+                  type="time"
+                  value={config.beerHuntDailyTime ?? '09:00'}
+                  onChange={e => save({ beerHuntDailyTime: e.target.value })}
+                  className="bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none max-w-xs"
+                />
+                <p className="text-xs text-gray-500 mt-1">Server runs the hunt once per day at this time (server local time).</p>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Interval (minutes)</label>
+                <select
+                  value={Math.round((config.beerHuntPollIntervalSeconds ?? 300) / 60)}
+                  onChange={e => save({ beerHuntPollIntervalSeconds: Number(e.target.value) * 60 })}
+                  className="w-full bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none max-w-xs"
+                >
+                  <option value={5}>Every 5 minutes</option>
+                  <option value={15}>Every 15 minutes</option>
+                  <option value={30}>Every 30 minutes</option>
+                  <option value={60}>Every 1 hour</option>
+                  <option value={120}>Every 2 hours</option>
+                  <option value={360}>Every 6 hours</option>
+                  <option value={720}>Every 12 hours</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Backend polls your enabled sources (Catalog.beer, Untappd) at this interval when you have active hunts.</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Apify — backend uses this to scrape Troon and send you full post + ordering URL */}
+        <div className="bg-slate-700/50 border border-slate-600 rounded-lg p-4">
+          <h4 className="text-sm text-amber-400 font-semibold mb-3">Instagram scraping (Apify)</h4>
+          <p className="text-xs text-gray-400 mb-3">
+            Backend polls Troon’s Instagram via Apify and sends you email + WhatsApp with the full post and ordering URL. Subscribe to a paid actor for reliable captions.
+          </p>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Apify API token</label>
               <input
                 type="password"
-                value={config.apifyApiToken}
-                onChange={e => save({ apifyApiToken: e.target.value })}
-                placeholder="apify_api_..."
+                value={apifyTokenInput}
+                onChange={e => setApifyTokenInput(e.target.value)}
+                placeholder={backendApify?.hasApifyToken ? '••••••••' : 'apify_api_...'}
                 className="w-full bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
               />
               <p className="text-xs text-gray-500 mt-1">
-                Get your token at <a href="https://console.apify.com/account/integrations" target="_blank" rel="noopener noreferrer" className="text-amber-400 hover:text-amber-300 underline">apify.com → Settings → Integrations → API tokens</a>.
-                Free tier gives ~30 runs/month.
+                Get a token at <a href="https://console.apify.com/account/integrations" target="_blank" rel="noopener noreferrer" className="text-amber-400 hover:text-amber-300 underline">apify.com → Settings → Integrations → API tokens</a>. Leave blank to keep existing token.
               </p>
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Apify Actor ID</label>
+              <label className="block text-xs text-gray-400 mb-1">Apify Actor ID (which scraper to use)</label>
               <input
-                value={config.apifyActorId}
-                onChange={e => save({ apifyActorId: e.target.value })}
+                value={(backendApify?.apifyActorId || 'apify/instagram-post-scraper').trim() || 'apify/instagram-post-scraper'}
+                onChange={e => setBackendApify((p) => p ? { ...p, apifyActorId: e.target.value } : { apifyActorId: e.target.value, pollMinutes: 5, hasApifyToken: false, apifyTokenMasked: '' })}
                 placeholder="apify/instagram-post-scraper"
                 className="w-full bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none"
               />
-              <p className="text-xs text-gray-500 mt-1">
-                For post captions (e.g. Troon): free <code className="text-amber-400">apify/instagram-post-scraper</code> (may return 0 posts for some accounts). Cheaper paid: <code className="text-amber-400">apidojo/instagram-scraper-api</code> (pay-per-use ~$0.005/run) or <code className="text-amber-400">scraper-engine/instagram-post-scraper</code> ($5.99/mo).
+              <p className="text-xs text-amber-400 mt-1 font-medium">
+                Recommended paid actors (subscribe on Apify): <code className="bg-slate-800 px-1 rounded">apidojo/instagram-scraper-api</code> (pay-per-run) or <code className="bg-slate-800 px-1 rounded">scrapier/instagram-profile-post-scraper</code> (rent). Free <code className="text-gray-400">apify/instagram-post-scraper</code> may return 0 posts for some accounts.
               </p>
             </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Poll interval (minutes)</label>
+              <select
+                value={backendApify?.pollMinutes ?? 5}
+                onChange={e => setBackendApify((p) => p ? { ...p, pollMinutes: Number(e.target.value) } : { apifyActorId: 'apify/instagram-post-scraper', pollMinutes: Number(e.target.value), hasApifyToken: false, apifyTokenMasked: '' })}
+                className="w-full bg-slate-700 text-white rounded px-3 py-2 text-sm border border-slate-600 focus:border-amber-500 focus:outline-none max-w-xs"
+              >
+                <option value={5}>Every 5 min</option>
+                <option value={10}>Every 10 min</option>
+                <option value={15}>Every 15 min</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">Takes effect after backend restart.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={saveApifyConfig}
+                disabled={apifySaveStatus === 'saving'}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
+              >
+                {apifySaveStatus === 'saving' ? 'Saving…' : apifySaveStatus === 'ok' ? 'Saved' : apifySaveStatus === 'error' ? 'Save failed' : 'Save Apify config'}
+              </button>
+              <button
+                type="button"
+                onClick={() => runPollNow(false)}
+                disabled={runPollStatus === 'running'}
+                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
+              >
+                {runPollStatus === 'running' ? 'Running…' : runPollStatus === 'ok' ? 'Done' : runPollStatus === 'error' ? 'Run failed' : 'Run poll now'}
+              </button>
+              <button
+                type="button"
+                onClick={() => runPollNow(true)}
+                disabled={runPollStatus === 'running'}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
+                title="Fetch latest post and send one test alert to email + WhatsApp"
+              >
+                Send test alert (latest post)
+              </button>
+            </div>
+            {runPollResult && (
+              <p className="text-sm text-gray-300 mt-2">{runPollResult}</p>
+            )}
+            {runPollError && (
+              <p className="text-sm text-red-400 mt-2">Error: {runPollError}</p>
+            )}
           </div>
         </div>
 
@@ -1531,11 +2134,9 @@ function ConfigTab() {
         <div className="bg-amber-900/20 border border-amber-700/30 rounded-lg p-4">
           <h5 className="text-amber-400 font-semibold text-sm mb-2">How It Works</h5>
           <ol className="text-xs text-gray-300 space-y-1.5 list-decimal list-inside">
-            <li>Beer Mule calls Apify to fetch the latest posts from each brewery's Instagram.</li>
-            <li>Polls every {config.pollIntervalSeconds}s (faster at {config.fastPollIntervalSeconds}s during release windows).</li>
-            <li>When a post matches release keywords, it extracts the ordering URL (e.g. Square link).</li>
-            <li>Auto-checkout fills your saved details and payment card, places the order instantly.</li>
-            <li>All activity is logged in the Activity tab; purchase results appear in Purchases.</li>
+            <li>Send posts to the backend webhook — when Troon (or a watched account) posts and the post has a URL, the backend alerts you by email and WhatsApp with the post and URL.</li>
+            <li>Use IFTTT, Zapier, or another service to watch Instagram and POST to <code className="text-amber-400">/api/beermule/webhook</code>.</li>
+            <li>Activity is logged in the Activity tab.</li>
           </ol>
         </div>
       </div>

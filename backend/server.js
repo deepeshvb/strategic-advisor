@@ -37,6 +37,8 @@ const CONFIG_PATH = path.join(__dirname, 'config.json');
 const COMPANIES_CONFIG_PATH = path.join(__dirname, 'companies-config.json');
 const HENRY_ITEMS_PATH = path.join(__dirname, 'henry-items.json');
 const HENRY_PRICE_MONITOR_PATH = path.join(__dirname, 'henry-price-monitor.json');
+const HENRY_RESTAURANT_ALERTS_PATH = path.join(__dirname, 'henry-restaurant-alerts.json');
+const BEER_MULE_STATE_PATH = path.join(__dirname, 'beer-mule-state.json');
 
 const app = express();
 const PORT = process.env.BACKEND_PORT || 3000;
@@ -380,15 +382,18 @@ app.post('/webhook/email', upload.any(), async (req, res) => {
   const from = body.from || body.sender || '';
   const subject = (body.subject || '').trim();
   let text = (body.text || body.plain || body.Body || '').trim();
+  let parsedEmail = null;
   if (!text && body.html) {
     text = String(body.html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   }
-  if (!text && body.email) {
+  if (body.email) {
     try {
-      const raw = typeof body.email === 'string' ? Buffer.from(body.email, 'utf8') : body.email;
-      const parsed = await simpleParser(raw);
-      text = (parsed.text || '').trim();
-      if (!text && parsed.html) text = String(parsed.html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const raw = Buffer.isBuffer(body.email) ? body.email : (typeof body.email === 'string' ? Buffer.from(body.email, 'utf8') : Buffer.from(String(body.email)));
+      parsedEmail = await simpleParser(raw);
+      if (!text) {
+        text = (parsedEmail.text || '').trim();
+        if (!text && parsedEmail.html) text = String(parsedEmail.html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      }
     } catch (e) {
       console.warn('📥 Raw MIME parse failed:', e.message);
     }
@@ -412,6 +417,106 @@ app.post('/webhook/email', upload.any(), async (req, res) => {
   const wantsBriefing =
     lowerSubject === 'brief' || lowerSubject === 'briefing' || lowerSubject === 'status' || lowerText === 'brief' || lowerText === 'briefing' || lowerText === 'status' || /\b(status|briefing|brief)\b/.test(lowerText);
 
+  const wantsKandidly = (lowerSubject.includes('kandidly') || lowerText.includes('kandidly') || lowerSubject.includes('screen candidate') || lowerText.includes('screen candidate') || lowerSubject.includes('hiring screen') || lowerText.includes('hiring screen')) && (loadConfig()?.kandidly?.enabled === true);
+
+  if (wantsKandidly) {
+    (async () => {
+      try {
+        const combinedText = [subject, text].filter(Boolean).join('\n');
+        const screenReq = parseScreenRequest(combinedText);
+        const jds = readKandidlyJds();
+        const allCandidates = readKandidlyCandidates();
+        const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+        if (screenReq && screenReq.candidateName && screenReq.roleOrJd) {
+          const roleNorm = norm(screenReq.roleOrJd);
+          const jdDoc = jds.find((j) => norm(j.title) === roleNorm || norm(j.title).includes(roleNorm) || roleNorm.includes(norm(j.title)));
+          const cand = allCandidates.find((c) => norm(c.name) === norm(screenReq.candidateName) || norm(c.name).includes(norm(screenReq.candidateName)) || norm(screenReq.candidateName).includes(norm(c.name)));
+          if (jdDoc && cand) {
+            const previous = !screenReq.rerun ? findPreviousScreening(cand.name, jdDoc.title || extractRoleLabelFromJd(jdDoc.content)) : null;
+            if (previous) {
+              const c0 = previous.candidates && previous.candidates[0];
+              const prevMsg = `Previously screened on ${new Date(previous.createdAt).toLocaleString()} for ${previous.roleLabel}: ${c0 ? `${c0.name} ${c0.score}/10 (${c0.recommendation === 'strong_fit' ? 'Strong fit' : c0.recommendation === 'possible_fit' ? 'Possible fit' : 'Weak fit'})` : ''}. Reply with "rerun" to run a fresh screening.`;
+              await sendEmailReply(recipient, `Re: Kandidly – ${previous.roleLabel} – Previous screening`, prevMsg);
+              console.log('📧 Kandidly: replied with previous screening');
+              return;
+            }
+            const validCandidates = [{ name: cand.name, resume: cand.resume, interviewNotes: cand.interviewNotes || '' }];
+            const results = await runKandidlyScreening(jdDoc.content, validCandidates, jdDoc);
+            const roleLabel = jdDoc.title || extractRoleLabelFromJd(jdDoc.content);
+            const recordId = `k_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+            const record = { id: recordId, createdAt: new Date().toISOString(), roleLabel, jobDescriptionSnippet: jdDoc.content.slice(0, 300), candidates: results, jdId: jdDoc.id, candidateIds: [cand.id] };
+            const history = readKandidlyHistory();
+            history.unshift(record);
+            writeKandidlyHistory(history.slice(0, 200));
+            const adminWhatsApp = getAdminWhatsAppNumber();
+            await sendKandidlyNotifications(record, recipient, adminWhatsApp);
+            const replyLines = results.map((r) => {
+              const rec = r.recommendation === 'strong_fit' ? 'Strong fit' : r.recommendation === 'possible_fit' ? 'Possible fit' : 'Weak fit';
+              return `${r.name || 'Candidate'}: ${r.score}/10 – ${rec}\n${r.fitSummary || ''}`;
+            });
+            await sendEmailReply(recipient, `Re: Kandidly – ${roleLabel} – Screening results`, `Kandidly screening results – ${roleLabel}\n\n${replyLines.join('\n\n')}\n\nFull report also sent; WhatsApp summary if configured.`);
+            console.log('📧 Kandidly: screening from repo (email) sent to', recipient);
+            return;
+          }
+        }
+        const attachments = [];
+        if (parsedEmail && Array.isArray(parsedEmail.attachments) && parsedEmail.attachments.length > 0) {
+          for (const a of parsedEmail.attachments) {
+            const content = a.content;
+            const buf = Buffer.isBuffer(content) ? content : (content && typeof content === 'object' && content.content ? content.content : Buffer.from(String(content || '')));
+            const fname = (a.filename || a.contentType || '').toLowerCase();
+            if (buf.length > 0 && (fname.endsWith('.docx') || fname.endsWith('.doc') || fname.endsWith('.txt') || a.contentType?.includes('word') || a.contentType?.includes('text/plain'))) {
+              const extracted = await extractTextFromBuffer(buf, a.filename || '', a.contentType || '');
+              if (extracted.trim()) attachments.push({ filename: a.filename || 'attachment', text: extracted.trim() });
+            }
+          }
+        }
+        if (attachments.length === 0 && req.files && Array.isArray(req.files) && req.files.length > 0) {
+          for (const f of req.files) {
+            if (f.buffer && f.buffer.length > 0) {
+              const name = (f.originalname || f.name || '').toLowerCase();
+              if (name.endsWith('.docx') || name.endsWith('.doc') || name.endsWith('.txt')) {
+                const extracted = await extractTextFromBuffer(f.buffer, f.originalname || f.name, f.mimetype);
+                if (extracted.trim()) attachments.push({ filename: f.originalname || f.name || 'attachment', text: extracted.trim() });
+              }
+            }
+          }
+        }
+        const useBodyAsJd = text && text.length > 150 && attachments.length >= 1;
+        if (!useBodyAsJd && attachments.length < 2) {
+          await sendEmailReply(recipient, 'Re: Kandidly – need JD + resumes', 'Kandidly: Send "Screen [candidate name] for [role/JD title]" to use saved JD and candidate, or send at least 2 attachments (JD + resume) as Word (.doc/.docx) or .txt. Add "rerun" to run screening again. Subject: "Kandidly" or "Screen candidates".');
+          console.log('📧 Kandidly: replied – need more attachments or body as JD');
+          return;
+        }
+        const jobDescription = useBodyAsJd ? text : attachments[0].text;
+        const resumeAttachments = useBodyAsJd ? attachments : attachments.slice(1);
+        const validCandidates = resumeAttachments.map((a, i) => ({ name: a.filename.replace(/\.[^.]+$/, ''), resume: a.text, interviewNotes: '' }));
+        const results = await runKandidlyScreening(jobDescription, validCandidates);
+        const roleLabel = extractRoleLabelFromJd(jobDescription);
+        const recordId = `k_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+        const record = { id: recordId, createdAt: new Date().toISOString(), roleLabel, jobDescriptionSnippet: jobDescription.slice(0, 300), candidates: results, jdId: null, candidateIds: null };
+        const history = readKandidlyHistory();
+        history.unshift(record);
+        writeKandidlyHistory(history.slice(0, 200));
+        const adminWhatsApp = getAdminWhatsAppNumber();
+        await sendKandidlyNotifications(record, recipient, adminWhatsApp);
+        const replyLines = results.map((r) => {
+          const rec = r.recommendation === 'strong_fit' ? 'Strong fit' : r.recommendation === 'possible_fit' ? 'Possible fit' : 'Weak fit';
+          return `${r.name || 'Candidate'}: ${r.score}/10 – ${rec}\n${r.fitSummary || ''}\nDetailed: ${(r.detailedFitNarrative || '').slice(0, 500)}…\nStrengths: ${(r.strengths || []).join('; ')}\nGaps: ${(r.gaps || []).join('; ')}\nInterview focus: ${(r.interviewFocusAreas || []).join('; ')}`;
+        });
+        const replyBody = `Kandidly screening results – ${roleLabel}\n\n${replyLines.length ? replyLines.join('\n\n---\n\n') : 'Could not parse screening results.'}\n\nFull report also sent to your email; WhatsApp summary sent if configured.`;
+        await sendEmailReply(recipient, `Re: Kandidly – ${roleLabel} – Screening results`, replyBody);
+        console.log('📧 Kandidly: screening reply sent to', recipient);
+      } catch (e) {
+        console.error('Kandidly email screening failed:', e.message);
+        try {
+          await sendEmailReply(recipient, 'Re: Kandidly – Error', `Kandidly could not process your request: ${e.message}. Please try the Lobster Console → Kandidly tab, or resend with .doc/.docx/.txt attachments.`);
+        } catch (_) {}
+      }
+    })();
+    return;
+  }
+
   if (wantsBriefing) {
     try {
       const out = await generateLiveBriefingHtml('morning');
@@ -426,6 +531,14 @@ app.post('/webhook/email', upload.any(), async (req, res) => {
     // Arbitrary query - process like WhatsApp/SMS
     (async () => {
       try {
+        // Henry: confirm buy (price monitor) – attempt to book pending flight with Amadeus
+        if (parseHenryConfirmBuy(text) && (loadConfig()?.travelAgent?.enabled ?? process.env.TRAVEL_AGENT_ENABLED === 'true')) {
+          const bookResult = await tryHenryPriceMonitorConfirmBuy();
+          const replyBody = bookResult.ok ? bookResult.message : `Henry: ${bookResult.message}`;
+          await sendEmailReply(recipient, bookResult.ok ? 'Re: Henry – Flight booking' : 'Re: Henry – Booking', replyBody);
+          console.log(bookResult.ok ? '✈️ Henry: flight booking completed from email' : '📋 Henry: confirm-buy from email –', bookResult.message);
+          return;
+        }
         // Henry: booking confirmation via email – record and reply without running full agent
         const henryConf = parseHenryBookingConfirmation(text);
         if (henryConf && (loadConfig()?.travelAgent?.enabled ?? process.env.TRAVEL_AGENT_ENABLED === 'true')) {
@@ -2328,6 +2441,152 @@ app.post('/webhook/whatsapp', async (req, res) => {
 
       const lowerBody = effectiveBody.toLowerCase().trim();
 
+      // Kandidly: short "screen X for Y" via WhatsApp (use saved JD + candidate)
+      const wantsKandidlyShort = (lowerBody.includes('kandidly') || lowerBody.includes('screen candidate') || lowerBody.includes('screen ')) && (loadConfig()?.kandidly?.enabled === true) && isWhatsApp && effectiveBody.length <= 500;
+      if (wantsKandidlyShort) {
+        const screenReq = parseScreenRequest(effectiveBody);
+        if (screenReq && screenReq.candidateName && screenReq.roleOrJd) {
+          const jds = readKandidlyJds();
+          const allCandidates = readKandidlyCandidates();
+          const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+          const roleNorm = norm(screenReq.roleOrJd);
+          const jdDoc = jds.find((j) => norm(j.title) === roleNorm || norm(j.title).includes(roleNorm) || roleNorm.includes(norm(j.title)));
+          const cand = allCandidates.find((c) => norm(c.name) === norm(screenReq.candidateName) || norm(c.name).includes(norm(screenReq.candidateName)) || norm(screenReq.candidateName).includes(norm(c.name)));
+          if (jdDoc && cand) {
+            const previous = !screenReq.rerun ? findPreviousScreening(cand.name, jdDoc.title || extractRoleLabelFromJd(jdDoc.content)) : null;
+            if (previous) {
+              const c0 = previous.candidates && previous.candidates[0];
+              const prevMsg = `Previously screened on ${new Date(previous.createdAt).toLocaleString()} for ${previous.roleLabel}: ${c0 ? `${c0.name} ${c0.score}/10 (${c0.recommendation === 'strong_fit' ? 'Strong' : c0.recommendation === 'possible_fit' ? 'Possible' : 'Weak'} fit)` : ''}. Reply "rerun" to run a fresh screening.`;
+              await sendWhatsApp(prevMsg, false, From);
+              console.log('📧 Kandidly: WhatsApp previous screening');
+              return;
+            }
+            try {
+              await sendWhatsApp('Screening… This may take 1–2 minutes.', false, From);
+              const validCandidates = [{ name: cand.name, resume: cand.resume, interviewNotes: cand.interviewNotes || '' }];
+              const results = await runKandidlyScreening(jdDoc.content, validCandidates, jdDoc);
+              const roleLabel = jdDoc.title || extractRoleLabelFromJd(jdDoc.content);
+              const recordId = `k_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+              const record = { id: recordId, createdAt: new Date().toISOString(), roleLabel, jobDescriptionSnippet: jdDoc.content.slice(0, 300), candidates: results, jdId: jdDoc.id, candidateIds: [cand.id] };
+              const history = readKandidlyHistory();
+              history.unshift(record);
+              writeKandidlyHistory(history.slice(0, 200));
+              const adminEmail = getAdminEmail();
+              const adminWhatsAppNum = getAdminWhatsAppNumber();
+              await sendKandidlyNotifications(record, adminEmail, adminWhatsAppNum);
+              const summary = results.map((r) => `${r.name}: ${r.score}/10 – ${r.recommendation === 'strong_fit' ? 'Strong' : r.recommendation === 'possible_fit' ? 'Possible' : 'Weak'} fit`).join('\n');
+              await sendWhatsApp(`Kandidly – ${roleLabel}\n\n${summary}\n\nFull report sent to your email.`, false, From);
+              console.log('📧 Kandidly: screening from repo (WhatsApp) completed');
+            } catch (e) {
+              console.error('Kandidly WhatsApp screening failed:', e.message);
+              await sendWhatsApp(`Kandidly screening failed: ${e.message}. Try Lobster Console → Kandidly or email with attachments.`, false, From);
+            }
+            return;
+          }
+        }
+      }
+
+      // Kandidly: long paste JD + resumes in message
+      const wantsKandidlyWhatsApp = (lowerBody.includes('kandidly') || lowerBody.includes('screen candidate')) && (loadConfig()?.kandidly?.enabled === true) && effectiveBody.length > 200;
+      if (wantsKandidlyWhatsApp && isWhatsApp) {
+        const jdMatch = effectiveBody.match(/\b(?:JD|Job description)\s*:?\s*([\s\S]*?)(?=Candidate\s*\d*\s*:?|Resume\s*\d*\s*:?|$)/i);
+        let jd = jdMatch ? jdMatch[1].trim() : '';
+        if (!jd) {
+          const firstBlock = effectiveBody.split(/(?=Candidate\s*\d*\s*:?|Resume\s*\d*\s*:?)/i)[0] || '';
+          jd = firstBlock.replace(/^[\s\S]*?(?:kandidly|screen\s+candidate[s]?)\s*/i, '').trim();
+        }
+        const candidateBlocks = effectiveBody.split(/(?=Candidate\s*\d*\s*:?|Resume\s*\d*\s*:?)/i).filter((b) => /^(?:Candidate|Resume)\s*\d*\s*:?\s*/i.test(b.trim()) && b.trim().length > 50);
+        const candidates = candidateBlocks.map((b) => {
+          const nameMatch = b.match(/^(?:Candidate|Resume)\s*(\d*)\s*:?\s*([^\n]*)?/i);
+          const name = (nameMatch && nameMatch[2]?.trim()) || nameMatch?.[1] ? `Candidate ${nameMatch[1]}` : 'Candidate';
+          const resume = b.replace(/^(?:Candidate|Resume)\s*\d*\s*:?[^\n]*\n?/i, '').trim();
+          return { name, resume, interviewNotes: '' };
+        }).filter((c) => c.resume.length > 50);
+        if (jd.length > 100 && candidates.length >= 1) {
+          try {
+            await sendWhatsApp('Screening your candidates… This may take 1–2 minutes.', false, From);
+            const results = await runKandidlyScreening(jd, candidates);
+            const roleLabel = extractRoleLabelFromJd(jd);
+            const recordId = `k_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+            const record = { id: recordId, createdAt: new Date().toISOString(), roleLabel, jobDescriptionSnippet: jd.slice(0, 300), candidates: results, jdId: null, candidateIds: null };
+            const history = readKandidlyHistory();
+            history.unshift(record);
+            writeKandidlyHistory(history.slice(0, 200));
+            const adminEmail = getAdminEmail();
+            const adminWhatsApp = getAdminWhatsAppNumber();
+            await sendKandidlyNotifications(record, adminEmail, adminWhatsApp);
+            const summary = results.map((r) => `${r.name}: ${r.score}/10 – ${r.recommendation === 'strong_fit' ? 'Strong' : r.recommendation === 'possible_fit' ? 'Possible' : 'Weak'} fit`).join('\n');
+            await sendWhatsApp(`Kandidly – ${roleLabel}\n\n${summary}\n\nFull report sent to your email.`, false, From);
+            console.log('📧 Kandidly: screening from WhatsApp completed');
+          } catch (e) {
+            console.error('Kandidly WhatsApp screening failed:', e.message);
+            await sendWhatsApp(`Kandidly screening failed: ${e.message}. Try the Lobster Console → Kandidly tab or email with Word attachments.`, false, From);
+          }
+          return;
+        }
+        if (wantsKandidlyWhatsApp && isWhatsApp && (jd.length < 100 || candidates.length < 1)) {
+          await sendWhatsApp('To screen via WhatsApp:\n\n• Short: "Screen [candidate name] for [role/JD title]" (candidate and JD must be saved in Kandidly). Reply "rerun" to run again.\n\n• Long: Paste JD: <job description>\n\nCandidate 1: Name\n<resume>\n\nOr email with Word attachments.', false, From);
+          return;
+        }
+      }
+
+      // Beer Mule: track a beer / beer hunt status via WhatsApp
+      const beerHuntTrackMatch = effectiveBody.match(/(?:track|hunt)\s+(?:for\s+)?(?:beer\s+)?(.+?)(?:\s+in\s+(.+))?$/i) || effectiveBody.match(/track\s+beer\s+(.+)/i);
+      const beerHuntStatusMatch = /(?:beer\s+hunt\s+status|status\s+(?:of\s+)?beer\s+hunt|beer\s+hunt\s+status)/i.test(effectiveBody) || (effectiveBody.trim().toLowerCase() === 'beer hunt');
+      if (beerHuntStatusMatch && isWhatsApp) {
+        const state = readBeerMuleState();
+        const hunts = (state.hunts || []).filter((h) => h.enabled);
+        if (hunts.length === 0) {
+          await sendWhatsApp('🍺 Beer Hunt: No active hunts. Add one in Lobster Console → Beer Mule → Beer Hunts, or text "Track beer [name]" to start one.', false, From);
+        } else {
+          const lines = hunts.map((h) => {
+            const count = (state.sightings || []).filter((s) => s.huntId === h.id).length;
+            return `• ${h.beerName}${h.breweryName ? ` (${h.breweryName})` : ''}: ${count} sighting(s)`;
+          });
+          const lastPoll = state.lastPollAt ? ` Last poll: ${new Date(state.lastPollAt).toLocaleTimeString()}.` : '';
+          await sendWhatsApp(`🍺 Beer Hunt status (${hunts.length} active):\n\n${lines.join('\n')}${lastPoll}\n\nReply "Track beer [name]" to add a hunt.`, false, From);
+        }
+        console.log('📱 Beer Mule: status sent to', From);
+        return;
+      }
+      if (beerHuntTrackMatch && isWhatsApp) {
+        const beerName = (beerHuntTrackMatch[1] || '').trim().replace(/\s+in\s+.*$/i, '').trim();
+        const searchArea = (beerHuntTrackMatch[2] || beerHuntTrackMatch[1].match(/\s+in\s+(.+)/i)?.[1] || '').trim() || (loadConfig()?.ceo?.phoneNumber ? 'default' : '');
+        if (beerName.length < 2) {
+          await sendWhatsApp('🍺 Reply with "Track beer [beer name]" or "Track [beer name] in [city/zip]". Example: Track beer Pliny the Elder', false, From);
+          return;
+        }
+        const state = readBeerMuleState();
+        const newHunt = {
+          id: `hunt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          beerName,
+          breweryName: '',
+          searchArea: searchArea && searchArea !== 'default' ? searchArea : (state.hunts && state.hunts[0]?.searchArea) || '08852',
+          radiusMiles: 30,
+          sources: ['untappd'],
+          alertWhatsApp: true,
+          whatsAppNumber: '',
+          enabled: true,
+          createdAt: new Date().toISOString(),
+        };
+        state.hunts = state.hunts || [];
+        state.hunts.push(newHunt);
+        writeBeerMuleState(state);
+        scheduleBeerMulePoll();
+        await sendWhatsApp(`🍺 Beer Hunt: Now tracking "${beerName}"${newHunt.searchArea ? ` in ${newHunt.searchArea}` : ''}. You'll get a WhatsApp when it's spotted on Untappd. Check Lobster Console → Beer Mule to edit or see sightings.`, false, From);
+        console.log('📱 Beer Mule: added hunt from WhatsApp', beerName, From);
+        return;
+      }
+
+      // Henry: confirm buy (price monitor) – attempt to book pending flight with Amadeus
+      if (parseHenryConfirmBuy(effectiveBody) && (loadConfig()?.travelAgent?.enabled ?? process.env.TRAVEL_AGENT_ENABLED === 'true')) {
+        const bookResult = await tryHenryPriceMonitorConfirmBuy();
+        const reply = bookResult.ok ? bookResult.message : `Henry: ${bookResult.message}`;
+        if (isWhatsApp) await sendWhatsApp(reply, false, From);
+        else await sendSMS(reply, false, From);
+        console.log(bookResult.ok ? '✈️ Henry: flight booking completed from WhatsApp' : '📋 Henry: confirm-buy from WhatsApp –', bookResult.message);
+        return;
+      }
       // Henry: booking confirmation via WhatsApp – record and reply without running full agent
       const henryConf = parseHenryBookingConfirmation(effectiveBody);
       if (henryConf && (loadConfig()?.travelAgent?.enabled ?? process.env.TRAVEL_AGENT_ENABLED === 'true')) {
@@ -2726,7 +2985,11 @@ function loadConfig() {
 
 function getAdminEmail() {
   const cfg = loadConfig();
-  return cfg?.ceo?.email || process.env.CEO_EMAIL || process.env.EMAIL_USER || process.env.GMAIL_USER || '';
+  const fromCfg = (cfg?.ceo?.email || process.env.CEO_EMAIL || process.env.EMAIL_USER || process.env.GMAIL_USER || '').trim();
+  if (fromCfg) return fromCfg;
+  const companiesCfg = loadCompaniesConfig({ silent: true });
+  const fromCompanies = (companiesCfg?.companies?.[0]?.channels?.email?.adminEmail || '').trim();
+  return fromCompanies || '';
 }
 
 function getAdminWhatsAppNumber() {
@@ -2792,15 +3055,26 @@ app.get('/api/config', (req, res) => {
       maxStops: cfg?.travelAgent?.maxStops ?? '',
       priceMonitorEnabled: cfg?.travelAgent?.priceMonitorEnabled === true,
       priceMonitorIntervalHours: Math.max(1, Math.min(24, parseInt(cfg?.travelAgent?.priceMonitorIntervalHours, 10) || 6)),
+      henryAutoBookAndPay: cfg?.travelAgent?.henryAutoBookAndPay === true,
       amadeusApiKey: cfg?.travelAgent?.amadeusApiKey ?? process.env.AMADEUS_API_KEY ?? '',
       amadeusApiSecret: cfg?.travelAgent?.amadeusApiSecret ? '••••••••' : '',
+      restaurantAvailability: cfg?.travelAgent?.restaurantAvailability ?? '',
+      hardToGetRestaurants: Array.isArray(cfg?.travelAgent?.hardToGetRestaurants) ? cfg.travelAgent.hardToGetRestaurants : [],
+      openTableEmail: cfg?.travelAgent?.openTableEmail ?? '',
+      openTablePassword: (cfg?.travelAgent?.openTablePassword && cfg.travelAgent.openTablePassword.length > 0) ? '••••••••' : '',
+      resyEmail: cfg?.travelAgent?.resyEmail ?? '',
+      resyPassword: (cfg?.travelAgent?.resyPassword && cfg.travelAgent.resyPassword.length > 0) ? '••••••••' : '',
     },
     starkNavigator: {
       enabled: cfg?.starkNavigator?.enabled === true,
       criteria: cfg?.starkNavigator?.criteria ?? '',
+      symbolsToMonitor: cfg?.starkNavigator?.symbolsToMonitor ?? '',
       dailyScheduleEnabled: cfg?.starkNavigator?.dailyScheduleEnabled === true,
       dailyScheduleTime: cfg?.starkNavigator?.dailyScheduleTime ?? '08:00',
       hotAlertEnabled: cfg?.starkNavigator?.hotAlertEnabled !== false,
+    },
+    kandidly: {
+      enabled: cfg?.kandidly?.enabled === true,
     }
   });
 });
@@ -2813,6 +3087,12 @@ app.post('/api/config', express.json(), (req, res) => {
       if (incoming.travelAgent.amadeusApiSecret === '••••••••' || incoming.travelAgent.amadeusApiSecret === '') {
         incoming.travelAgent.amadeusApiSecret = cfg.travelAgent.amadeusApiSecret || '';
       }
+      if (incoming.travelAgent.openTablePassword === '••••••••' || incoming.travelAgent.openTablePassword === '') {
+        incoming.travelAgent.openTablePassword = cfg.travelAgent.openTablePassword || '';
+      }
+      if (incoming.travelAgent.resyPassword === '••••••••' || incoming.travelAgent.resyPassword === '') {
+        incoming.travelAgent.resyPassword = cfg.travelAgent.resyPassword || '';
+      }
     }
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(incoming, null, 2), 'utf8');
     console.log('📝 Configuration saved to', CONFIG_PATH);
@@ -2824,47 +3104,88 @@ app.post('/api/config', express.json(), (req, res) => {
 });
 
 // ----- StarkNavigator: evaluate investments and big purchases (stocks, cars, wine, real estate, etc.) against criteria; daily digest + hot alerts -----
-const STARK_NAVIGATOR_PROMPT = `You are StarkNavigator, an advisor for both investments (e.g. stocks) and big purchases (cars, wine, real estate, art, luxury goods, etc.). Given the user's criteria and a list of opportunities, evaluate each and recommend: buy, hold, or skip. For any you mark as strong buy or exceptional deal, set "hot": true so the user gets an instant alert.
-Reply with ONLY a valid JSON object (no other text) in this exact shape:
-{"recommendations":[{"symbol":"AAPL","name":"Apple Inc","action":"buy|hold|skip","reason":"one short sentence","hot":true|false}]}
-Use "symbol" and "name" for the opportunity (for stocks use ticker/company name; for other items use a short id and description). Use "hot": true only for 1–2 items that are exceptional based on the user's criteria. Be conservative.`;
+const STARK_NAVIGATOR_PROMPT = `You are StarkNavigator, an investment and big-purchase advisor. You evaluate a list of opportunities (with current price and change) against the user's criteria.
+
+Rules:
+- Include EVERY scanned symbol in the recommendations array (all 5 when 5 are scanned).
+- Recommend "buy" for every symbol that fits the criteria (sector, risk, return); you can have 0 to 5 buys. Use "hold" or "skip" only when a stock clearly does not fit or is overpriced.
+- Rank every BUY in order of preference: rank 1 = best bet, rank 2 = second best, rank 3 = third, etc. Use rank 1 for the single best opportunity; set hot: true only on that one. For hold/skip use rank 99 so they sort last.
+- For each item provide: symbol, name, action (buy/hold/skip), reason (why buy or why not), rank (1=best bet, 2=second, ... for buys; 99 for hold/skip), hot (true only for rank 1), buyAtOrBelow, avoidAbove, priceGuidance.
+- Add top-level bestBet (symbol) and bestBetSummary (one sentence why this one is the best of the set).
+
+Reply with ONLY a valid JSON object (no other text):
+{"bestBet":"NVDA","bestBetSummary":"Best risk-adjusted upside in data center AI with strong margin profile.","recommendations":[{"symbol":"NVDA","name":"NVIDIA","action":"buy","reason":"...","rank":1,"hot":true,"buyAtOrBelow":120,"avoidAbove":145,"priceGuidance":"Buy at or below 120; avoid above 145."},{"symbol":"AMD","name":"AMD","action":"buy","reason":"...","rank":2,"hot":false,"buyAtOrBelow":125,"avoidAbove":140,"priceGuidance":"..."},...]}
+Include all scanned symbols. Exactly one item has hot: true and rank 1 (the best bet).`;
 
 const STARK_NAVIGATOR_BIG_PURCHASE_PROMPT = `You are StarkNavigator, an advisor for big purchases (cars, wine, real estate, art, luxury goods, etc.) and investments. Given the user's criteria and a description of one specific opportunity they are considering, recommend: buy, hold, or skip. Give a clear reason. If this is an exceptional deal that matches their criteria and they should act soon, set "hot": true so they get an instant alert.
 Reply with ONLY a valid JSON object (no other text):
 {"action":"buy|hold|skip","reason":"2-3 sentences","hot":true|false}`;
 
-// Mock stock scan: replace with Alpha Vantage / Yahoo / real API when key is configured
-async function fetchStarkStockData() {
+// Default: data center & AI themed symbols (user can override via symbolsToMonitor).
+const STARK_DEFAULT_SYMBOLS = ['NVDA', 'AMD', 'AVGO', 'SMCI', 'PLTR'];
+
+function getStarkSymbolsFromConfig(cfg) {
+  const raw = (cfg?.starkNavigator?.symbolsToMonitor || '').trim();
+  if (!raw) return STARK_DEFAULT_SYMBOLS;
+  return raw.split(/[\s,]+/).map((s) => s.trim().toUpperCase()).filter((s) => s.length >= 1 && s.length <= 6).slice(0, 5);
+}
+
+// Stock scan: Alpha Vantage (5 calls/min free tier) or mock. Throttle to 1 request every 12s to stay under limit.
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchStarkStockData(symbols) {
+  const five = symbols.slice(0, 5);
   const apiKey = process.env.ALPHA_VANTAGE_API_KEY || process.env.STARK_STOCK_API_KEY;
-  const symbols = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'JPM', 'V', 'JNJ'];
-  if (apiKey && typeof fetch === 'function') {
-    try {
-      const res = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=AAPL&apikey=${apiKey}`);
-      if (!res.ok) return getMockStarkStockData(symbols);
-      const data = await res.json();
-      if (data['Global Quote'] && data['Global Quote']['05. price']) {
-        const out = [];
-        for (const sym of symbols.slice(0, 5)) {
-          const r = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${sym}&apikey=${apiKey}`);
-          const d = await r.json();
-          const q = d['Global Quote'];
-          if (q && q['05. price']) out.push({ symbol: sym, name: sym, price: parseFloat(q['05. price']), changePercent: parseFloat(q['10. change percent']) || 0 });
-        }
-        if (out.length) return out;
-      }
-    } catch (e) {
-      console.warn('StarkNavigator: Alpha Vantage fetch failed, using mock:', e.message);
-    }
+  if (!apiKey || typeof fetch !== 'function') {
+    console.log('StarkNavigator: no ALPHA_VANTAGE_API_KEY, using mock data');
+    return getMockStarkStockData(five);
   }
-  return getMockStarkStockData(symbols);
+  try {
+    const out = [];
+    for (let i = 0; i < five.length; i++) {
+      const sym = five[i];
+      const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${sym}&apikey=${apiKey}`;
+      const res = await fetch(url);
+      const d = await res.json();
+      if (d['Error Message']) {
+        console.warn('StarkNavigator: Alpha Vantage error:', d['Error Message'].slice(0, 80));
+        break;
+      }
+      if (d['Note'] && d['Note'].includes('rate limit')) {
+        console.warn('StarkNavigator: Alpha Vantage rate limit (5/min). Using mock for this run.');
+        return getMockStarkStockData(five);
+      }
+      const q = d['Global Quote'];
+      if (q && q['05. price']) {
+        const changePct = q['10. change percent'];
+        const changeNum = typeof changePct === 'string' ? parseFloat(changePct.replace('%', '')) : parseFloat(changePct) || 0;
+        out.push({
+          symbol: sym,
+          name: sym,
+          price: parseFloat(q['05. price']),
+          changePercent: changeNum,
+        });
+      }
+      if (i < five.length - 1) await delay(12500);
+    }
+    if (out.length > 0) {
+      console.log('StarkNavigator: using Alpha Vantage real data for', out.length, 'symbols');
+      return out;
+    }
+  } catch (e) {
+    console.warn('StarkNavigator: Alpha Vantage fetch failed, using mock:', e.message);
+  }
+  return getMockStarkStockData(five);
 }
 
 function getMockStarkStockData(symbols) {
-  const names = { AAPL: 'Apple Inc', MSFT: 'Microsoft', GOOGL: 'Alphabet', AMZN: 'Amazon', NVDA: 'NVIDIA', META: 'Meta', TSLA: 'Tesla', JPM: 'JPMorgan', V: 'Visa', JNJ: 'Johnson & Johnson' };
+  const names = { NVDA: 'NVIDIA', AMD: 'AMD', AVGO: 'Broadcom', SMCI: 'Super Micro', PLTR: 'Palantir', AAPL: 'Apple', MSFT: 'Microsoft', GOOGL: 'Alphabet', AMZN: 'Amazon', META: 'Meta' };
   const now = Date.now();
   return symbols.map((s, i) => {
     const seed = (now % 1000) + i * 17;
-    const price = 150 + (seed % 400);
+    const price = 80 + (seed % 400);
     const ch = (seed % 20) - 8;
     return { symbol: s, name: names[s] || s, price, changePercent: ch * 0.5 };
   });
@@ -2873,31 +3194,65 @@ function getMockStarkStockData(symbols) {
 async function runStarkRecommendations(opts = {}) {
   const cfg = loadConfig();
   const criteria = (cfg?.starkNavigator?.criteria || '').trim() || 'General: focus on value and growth; moderate risk tolerance.';
-  const data = await fetchStarkStockData();
+  const symbols = getStarkSymbolsFromConfig(cfg);
+  const data = await fetchStarkStockData(symbols);
   const dataStr = JSON.stringify(data, null, 2);
-  const prompt = `User criteria:\n${criteria}\n\nCurrent opportunities (from scan):\n${dataStr}\n\nEvaluate each against the criteria. Output ONLY the JSON object with recommendations array (action: buy/hold/skip, reason, hot: true only for exceptional immediate buys).`;
+  const prompt = `User criteria:\n${criteria}\n\nScanned opportunities (${data.length} symbols, current price and change):\n${dataStr}\n\nEvaluate all ${data.length} symbols. Include every symbol in the recommendations array. For each that fits criteria, use action "buy" and assign rank 1 (best bet), 2 (second best), 3, 4, 5 in order of preference. Set hot: true only on rank 1. For hold/skip use rank 99. Provide reason, buyAtOrBelow, avoidAbove, priceGuidance for each. Output bestBet and bestBetSummary. Output ONLY the JSON object.`;
   let text;
   try {
     text = await askAI(prompt, '', { systemPrompt: STARK_NAVIGATOR_PROMPT });
   } catch (e) {
     console.warn('StarkNavigator AI failed:', e.message);
-    return { recommendations: [], error: e.message };
+    return { recommendations: [], bestBet: null, bestBetSummary: null, error: e.message };
   }
   const jsonMatch = (text || '').match(/\{[\s\S]*\}/);
   let recommendations = [];
+  let bestBet = null;
+  let bestBetSummary = null;
   if (jsonMatch) {
     try {
       const parsed = JSON.parse(jsonMatch[0]);
       recommendations = Array.isArray(parsed.recommendations) ? parsed.recommendations : [];
+      bestBet = typeof parsed.bestBet === 'string' ? parsed.bestBet.trim() : null;
+      bestBetSummary = typeof parsed.bestBetSummary === 'string' ? parsed.bestBetSummary.trim() : null;
     } catch (_) {}
   }
+  const scannedSymbols = data.map((d) => d.symbol);
+  const haveSymbol = new Set((recommendations || []).map((r) => String(r.symbol).toUpperCase()));
+  for (const sym of scannedSymbols) {
+    if (!haveSymbol.has(sym.toUpperCase())) {
+      recommendations.push({ symbol: sym, name: sym, action: 'hold', reason: 'Not evaluated.', rank: 99, hot: false });
+    }
+  }
+  if (bestBet) {
+    const bestSym = String(bestBet).toUpperCase();
+    for (const r of recommendations) {
+      r.hot = String(r.symbol).toUpperCase() === bestSym;
+      if (r.hot) r.rank = 1;
+    }
+    const buys = recommendations.filter((r) => r.action === 'buy' && !r.hot);
+    buys.forEach((r, i) => { r.rank = i + 2; });
+  }
+  const rankNum = (r) => (r.rank != null && r.rank !== undefined ? Number(r.rank) : (r.hot ? 1 : 99));
+  recommendations.sort((a, b) => rankNum(a) - rankNum(b));
   const hot = recommendations.filter((r) => r.hot === true);
   const adminEmail = getAdminEmail();
   const adminWhatsApp = getAdminWhatsAppNumber();
   const hotAlertEnabled = opts.sendHotAlerts !== false && cfg?.starkNavigator?.hotAlertEnabled !== false;
-  if (hotAlertEnabled && hot.length > 0 && (adminEmail || adminWhatsApp)) {
-    const hotList = hot.map((r) => `${r.symbol} (${r.name}): ${r.action} – ${r.reason || 'Strong opportunity'}`).join('\n');
-    const msg = `🔥 StarkNavigator – Immediate buy alert\n\n${hotList}\n\nFull daily digest will be sent at scheduled time.`;
+  const buys = (recommendations || []).filter((r) => r.action === 'buy');
+  const sendAlert = hotAlertEnabled && buys.length > 0 && (adminEmail || adminWhatsApp);
+  if (sendAlert) {
+    let msg = '🔥 StarkNavigator – Immediate buy alert\n\n';
+    if (bestBet && bestBetSummary) msg += `⭐ Best bet: ${bestBet} – ${bestBetSummary}\n\n`;
+    const sortedBuys = [...buys].sort((a, b) => (rankNum(a) - rankNum(b)));
+    const buyList = sortedBuys.map((r, i) => {
+      const num = i + 1;
+      let line = `${num}. ${r.hot ? '★ ' : ''}${r.symbol} (${r.name}): ${r.reason || 'Strong opportunity'}`;
+      if (r.priceGuidance) line += ` | ${r.priceGuidance}`;
+      else if (r.buyAtOrBelow != null || r.avoidAbove != null) line += ` | Buy ≤${r.buyAtOrBelow ?? '?'}${r.avoidAbove != null ? `, avoid above ${r.avoidAbove}` : ''}`;
+      return line;
+    }).join('\n');
+    msg += `${buyList}\n\nFull daily digest will be sent at scheduled time.`;
     if (adminEmail && (useSendGrid || emailTransporter)) {
       await sendEmailReply(adminEmail, 'StarkNavigator – Hot buy alert', msg);
       console.log('📧 StarkNavigator: hot alert sent by email');
@@ -2912,13 +3267,13 @@ async function runStarkRecommendations(opts = {}) {
       }
     }
   }
-  return { recommendations, hot };
+  return { recommendations, hot, bestBet, bestBetSummary };
 }
 
 app.post('/api/stark-navigator/recommendations', express.json(), async (req, res) => {
   try {
     const result = await runStarkRecommendations({ sendHotAlerts: true });
-    res.json({ success: true, recommendations: result.recommendations || [], hot: result.hot || [], error: result.error || null });
+    res.json({ success: true, recommendations: result.recommendations || [], hot: result.hot || [], bestBet: result.bestBet || null, bestBetSummary: result.bestBetSummary || null, error: result.error || null });
   } catch (e) {
     console.error('StarkNavigator recommendations error:', e.message);
     res.status(500).json({ success: false, error: e.message });
@@ -2985,8 +3340,16 @@ app.post('/api/stark-navigator/daily-send', express.json(), async (req, res) => 
     const result = await runStarkRecommendations({ sendHotAlerts: true });
     const adminEmail = getAdminEmail();
     const adminWhatsApp = getAdminWhatsAppNumber();
-    const lines = (result.recommendations || []).map((r) => `• ${r.symbol} (${r.name}): ${r.action} – ${r.reason || ''}${r.hot ? ' [HOT]' : ''}`);
-    const body = `StarkNavigator – Daily recommendations\n\n${lines.length ? lines.join('\n') : 'No recommendations today.'}`;
+    const bestBetLine = result.bestBet && result.bestBetSummary ? `⭐ Best bet: ${result.bestBet} – ${result.bestBetSummary}\n\n` : '';
+    const recs = result.recommendations || [];
+    const lines = recs.map((r, i) => {
+      const num = recs.length > 1 ? `${i + 1}. ` : '• ';
+      let line = `${num}${r.symbol} (${r.name}): ${r.action} – ${r.reason || ''}${r.hot ? ' [BEST BET]' : ''}`;
+      if (r.priceGuidance) line += ` | ${r.priceGuidance}`;
+      else if (r.buyAtOrBelow != null || r.avoidAbove != null) line += ` | Buy ≤${r.buyAtOrBelow ?? '?'}${r.avoidAbove != null ? `, avoid above ${r.avoidAbove}` : ''}`;
+      return line;
+    });
+    const body = `StarkNavigator – Daily recommendations\n\n${bestBetLine}${lines.length ? lines.join('\n') : 'No recommendations today.'}`;
     if (adminEmail && (useSendGrid || emailTransporter)) {
       await sendEmailReply(adminEmail, 'StarkNavigator – Daily recommendations', body);
     }
@@ -3002,6 +3365,1509 @@ app.post('/api/stark-navigator/daily-send', express.json(), async (req, res) => 
     res.json({ success: true, message: 'Daily digest sent.', recommendations: result.recommendations || [] });
   } catch (e) {
     console.error('StarkNavigator daily send error:', e.message);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ----- Beer Mule: real Beer Hunt tracking via Untappd API -----
+function readBeerMuleState() {
+  try {
+    if (fs.existsSync(BEER_MULE_STATE_PATH)) {
+      const raw = fs.readFileSync(BEER_MULE_STATE_PATH, 'utf8');
+      const data = JSON.parse(raw);
+      return {
+        hunts: Array.isArray(data.hunts) ? data.hunts : [],
+        sightings: Array.isArray(data.sightings) ? data.sightings : [],
+        config: data.config || { beerHuntPollIntervalSeconds: 300, alertWhatsAppNumber: '', beerHuntScheduleMode: 'interval', beerHuntDailyTime: '09:00' },
+        updatedAt: data.updatedAt || null,
+        lastPollAt: data.lastPollAt || null,
+      };
+    }
+  } catch (e) {
+    console.warn('Beer Mule state read failed:', e.message);
+  }
+  return { hunts: [], sightings: [], config: { beerHuntPollIntervalSeconds: 300, alertWhatsAppNumber: '', beerHuntScheduleMode: 'interval', beerHuntDailyTime: '09:00' }, updatedAt: null, lastPollAt: null };
+}
+
+function writeBeerMuleState(state) {
+  const payload = {
+    hunts: state.hunts || [],
+    sightings: state.sightings || [],
+    config: state.config || { beerHuntPollIntervalSeconds: 300, alertWhatsAppNumber: '', beerHuntScheduleMode: 'interval', beerHuntDailyTime: '09:00' },
+    updatedAt: new Date().toISOString(),
+    lastPollAt: state.lastPollAt || null,
+  };
+  fs.writeFileSync(BEER_MULE_STATE_PATH, JSON.stringify(payload, null, 2), 'utf8');
+}
+
+async function untappdRequest(pathname, params = {}) {
+  const clientId = process.env.UNTAPPD_CLIENT_ID || '';
+  const clientSecret = process.env.UNTAPPD_CLIENT_SECRET || '';
+  if (!clientId || !clientSecret) {
+    throw new Error('Untappd API not configured: set UNTAPPD_CLIENT_ID and UNTAPPD_CLIENT_SECRET in .env or .env.backend');
+  }
+  const q = new URLSearchParams({ client_id: clientId, client_secret: clientSecret, ...params });
+  const url = `https://api.untappd.com/v4${pathname}?${q.toString()}`;
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'BeerMule/1.0 (Beer Hunt)' },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Untappd API ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+async function catalogBeerRequest(path, method = 'GET') {
+  const apiKey = (process.env.CATALOG_BEER_API_KEY || '').trim();
+  if (!apiKey) throw new Error('Catalog.beer API not configured: set CATALOG_BEER_API_KEY in .env.backend (free at catalog.beer)');
+  const auth = Buffer.from(apiKey + ':', 'utf8').toString('base64');
+  const url = `https://api.catalog.beer${path}`;
+  const res = await fetch(url, {
+    method,
+    headers: { Accept: 'application/json', Authorization: `Basic ${auth}` },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Catalog.beer API ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+function haversineMiles(lat1, lon1, lat2, lon2) {
+  const R = 3959;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+const beerHuntGeocodeCache = new Map();
+async function geocodeSearchArea(searchArea) {
+  const key = (searchArea || '').trim();
+  if (!key) return null;
+  const cacheKey = key.toLowerCase();
+  if (beerHuntGeocodeCache.has(cacheKey)) return beerHuntGeocodeCache.get(cacheKey);
+  let lat = null;
+  let lon = null;
+  const isUsZip = /^\d{5}$/.test(key.replace(/\s/g, ''));
+  if (isUsZip) {
+    try {
+      const res = await fetch(`https://api.zippopotam.us/us/${key}`);
+      if (res.ok) {
+        const data = await res.json();
+        const place = data?.places?.[0];
+        if (place?.latitude != null && place?.longitude != null) {
+          lat = parseFloat(place.latitude);
+          lon = parseFloat(place.longitude);
+        }
+      }
+    } catch (_) {}
+  }
+  if (lat == null || lon == null) {
+    try {
+      const q = key.length <= 10 && /^[\d\s]+$/.test(key) ? `${key}, USA` : key;
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`,
+        { headers: { 'User-Agent': 'BeerMule/1.0 (Beer Hunt)' } }
+      );
+      const data = await res.json();
+      const first = Array.isArray(data) && data[0];
+      if (first?.lat != null && first?.lon != null) {
+        lat = parseFloat(first.lat);
+        lon = parseFloat(first.lon);
+      }
+    } catch (_) {}
+  }
+  const result = lat != null && lon != null && !Number.isNaN(lat) && !Number.isNaN(lon) ? { lat, lon } : null;
+  beerHuntGeocodeCache.set(cacheKey, result);
+  return result;
+}
+
+async function runUntappdPoll(state, existingSightingKeys, alertWhatsApp) {
+  const hunts = (state.hunts || []).filter((h) => h.enabled && Array.isArray(h.sources) && h.sources.includes('untappd'));
+  if (hunts.length === 0) return false;
+  const clientId = process.env.UNTAPPD_CLIENT_ID;
+  const clientSecret = process.env.UNTAPPD_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    console.warn('Beer Mule: Untappd API not configured — skip for', hunts.length, 'Untappd hunt(s). (Commercial agreement: api.requests@untappd.com)');
+    return false;
+  }
+  console.log('Beer Mule: checking Untappd for', hunts.length, 'hunt(s)');
+  let anyNew = false;
+  for (const hunt of hunts) {
+    try {
+      const q = [hunt.beerName].concat(hunt.breweryName ? [hunt.breweryName] : []).join(' ');
+      const searchRes = await untappdRequest('/search/beer', { q, limit: '5' });
+      const beers = searchRes?.response?.beers?.items || [];
+      if (beers.length === 0) continue;
+      const bid = beers[0].beer?.bid;
+      if (!bid) continue;
+      const checkinsRes = await untappdRequest(`/beer/checkins/${bid}`, { limit: '25' });
+      const checkins = checkinsRes?.response?.checkins?.items || [];
+      for (const item of checkins) {
+        const venue = item.venue;
+        if (!venue || !venue.venue_name) continue;
+        const venueId = String(venue.venue_id || '');
+        const venueName = venue.venue_name || 'Unknown';
+        const addr = [venue.location?.venue_address, venue.location?.venue_city, venue.location?.venue_state].filter(Boolean).join(', ');
+        const detectedAt = item.created_at || new Date().toISOString();
+        const key = `${hunt.id}|${venueId || venueName}|${detectedAt}`;
+        if (existingSightingKeys.has(key)) continue;
+        existingSightingKeys.add(key);
+        const venueType = (venue.venue_type || 'bar').toLowerCase().includes('restaurant') ? 'restaurant' : 'bar';
+        const sighting = {
+          id: `sight-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          huntId: hunt.id,
+          beerName: hunt.beerName,
+          venueName,
+          venueAddress: addr || undefined,
+          venueType: ['bar', 'restaurant', 'pub', 'bottle_shop', 'other'].includes(venueType) ? venueType : 'bar',
+          venueId: venueId || undefined,
+          source: 'untappd',
+          detectedAt,
+          alertSent: false,
+          sourceUrl: item.checkin_url ? `https://untappd.com${item.checkin_url}` : undefined,
+        };
+        state.sightings = state.sightings || [];
+        state.sightings.push(sighting);
+        anyNew = true;
+        if (hunt.alertWhatsApp && alertWhatsApp && twilioClient) {
+          const to = hunt.whatsAppNumber && hunt.whatsAppNumber.trim() ? hunt.whatsAppNumber.trim() : alertWhatsApp;
+          const msg = `🍺 Beer Hunt: "${hunt.beerName}" spotted at ${venueName}${addr ? ` (${addr})` : ''}. Source: Untappd.`;
+          try {
+            await sendWhatsApp(msg, false, `whatsapp:${String(to).replace(/^\+/, '').replace(/^whatsapp:/i, '')}`);
+            sighting.alertSent = true;
+            sighting.alertSentAt = new Date().toISOString();
+          } catch (e) {
+            console.warn('Beer Mule WhatsApp alert failed:', e.message);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Beer Mule Untappd poll error for', hunt.beerName, e.message);
+    }
+  }
+  return anyNew;
+}
+
+async function runCatalogBeerPoll(state, existingSightingKeys) {
+  const hunts = (state.hunts || []).filter((h) => h.enabled && Array.isArray(h.sources) && h.sources.includes('catalogbeer'));
+  if (hunts.length === 0) return false;
+  const apiKey = (process.env.CATALOG_BEER_API_KEY || '').trim();
+  if (!apiKey) {
+    console.warn('Beer Mule: Catalog.beer API not configured — skip. (Set CATALOG_BEER_API_KEY; free at catalog.beer)');
+    return false;
+  }
+  console.log('Beer Mule: checking Catalog.beer for', hunts.length, 'hunt(s)');
+  let anyNew = false;
+  for (const hunt of hunts) {
+    try {
+      const searchArea = (hunt.searchArea || '').trim();
+      const radiusMiles = Math.max(0, Number(hunt.radiusMiles) || 0);
+      let center = null;
+      if (searchArea && radiusMiles > 0) {
+        center = await geocodeSearchArea(searchArea);
+        if (!center) console.warn('Beer Mule: could not geocode search area', searchArea, '— skipping distance filter for this hunt');
+      }
+      const q = [hunt.beerName].concat(hunt.breweryName ? [hunt.breweryName] : []).join(' ').slice(0, 255);
+      const searchRes = await catalogBeerRequest(`/beer/search?q=${encodeURIComponent(q)}&count=3`);
+      const beers = searchRes?.data || [];
+      const seenBrewerIds = new Set();
+      for (const beerObj of beers) {
+        const brewerId = beerObj?.brewer?.id || beerObj?.brewer_id;
+        if (!brewerId || seenBrewerIds.has(brewerId)) continue;
+        seenBrewerIds.add(brewerId);
+        const locList = await catalogBeerRequest(`/brewer/${brewerId}/locations`);
+        const locs = locList?.data || [];
+        for (let i = 0; i < Math.min(locs.length, 5); i++) {
+          const loc = locs[i];
+          const locId = loc?.id;
+          const locName = loc?.name || 'Brewery location';
+          const alreadyHave = (state.sightings || []).some((s) => s.huntId === hunt.id && s.source === 'catalogbeer' && (s.venueId === locId || s.venueName === locName));
+          if (alreadyHave) continue;
+          let venueAddress;
+          let locLat = null;
+          let locLon = null;
+          if (locId) {
+            try {
+              const fullLoc = await catalogBeerRequest(`/location/${locId}`);
+              const addr = fullLoc?.address;
+              if (addr) {
+                const parts = [addr.address2, addr.address1, addr.city, addr.state_short, addr.zip5].filter(Boolean);
+                venueAddress = parts.join(', ');
+              }
+              if (fullLoc?.latitude != null && fullLoc?.longitude != null) {
+                locLat = parseFloat(fullLoc.latitude);
+                locLon = parseFloat(fullLoc.longitude);
+              }
+            } catch (_) {}
+          }
+          if (center && radiusMiles > 0) {
+            if (locLat == null || locLon == null || Number.isNaN(locLat) || Number.isNaN(locLon)) continue;
+            const distance = haversineMiles(center.lat, center.lon, locLat, locLon);
+            if (distance > radiusMiles) continue;
+          }
+          const key = `${hunt.id}|${locId || locName}|${new Date().toISOString()}`;
+          existingSightingKeys.add(key);
+          const sighting = {
+            id: `sight-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            huntId: hunt.id,
+            beerName: hunt.beerName,
+            venueName: locName,
+            venueAddress: venueAddress || undefined,
+            venueType: 'bar',
+            venueId: locId || undefined,
+            source: 'catalogbeer',
+            detectedAt: new Date().toISOString(),
+            alertSent: false,
+            sourceUrl: undefined,
+          };
+          state.sightings = state.sightings || [];
+          state.sightings.push(sighting);
+          anyNew = true;
+        }
+      }
+    } catch (e) {
+      console.warn('Beer Mule Catalog.beer poll error for', hunt.beerName, e.message);
+    }
+  }
+  return anyNew;
+}
+
+async function runBeerHuntPoll() {
+  const state = readBeerMuleState();
+  const hasUntappd = (state.hunts || []).some((h) => h.enabled && Array.isArray(h.sources) && h.sources.includes('untappd'));
+  const hasCatalogBeer = (state.hunts || []).some((h) => h.enabled && Array.isArray(h.sources) && h.sources.includes('catalogbeer'));
+  if (!hasUntappd && !hasCatalogBeer) return;
+  const existingSightingKeys = new Set((state.sightings || []).map((s) => `${s.huntId}|${s.venueId || s.venueName}|${s.detectedAt}`));
+  const alertWhatsApp = state.config?.alertWhatsAppNumber || getAdminWhatsAppNumber();
+  let anyNew = false;
+  if (hasUntappd) anyNew = (await runUntappdPoll(state, existingSightingKeys, alertWhatsApp)) || anyNew;
+  if (hasCatalogBeer) anyNew = (await runCatalogBeerPoll(state, existingSightingKeys)) || anyNew;
+  state.lastPollAt = new Date().toISOString();
+  if (anyNew) console.log('Beer Mule: saved new sightings');
+  writeBeerMuleState(state);
+}
+
+let beerMuleNextPollAt = null;
+let beerMulePollTimer = null;
+function scheduleBeerMulePoll() {
+  if (beerMulePollTimer) {
+    clearInterval(beerMulePollTimer);
+    clearTimeout(beerMulePollTimer);
+  }
+  beerMulePollTimer = null;
+  const state = readBeerMuleState();
+  const enabled = (state.hunts || []).some((h) => h.enabled && Array.isArray(h.sources) && (h.sources.includes('untappd') || h.sources.includes('catalogbeer')));
+  if (!enabled) return;
+
+  const mode = state.config?.beerHuntScheduleMode === 'daily' ? 'daily' : 'interval';
+  const dailyTime = (state.config?.beerHuntDailyTime || '09:00').trim().slice(0, 5);
+  const [dailyHour = 9, dailyMin = 0] = dailyTime.split(':').map(Number);
+
+  function runOnce() {
+    runBeerHuntPoll().catch((e) => console.warn('Beer Mule poll error:', e.message));
+  }
+
+  if (mode === 'daily') {
+    function scheduleNextDaily(logAfterRun) {
+      const now = new Date();
+      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), dailyHour, dailyMin, 0, 0);
+      if (next <= now) next.setDate(next.getDate() + 1);
+      const ms = Math.max(1000, next - now);
+      if (logAfterRun) console.log('Beer Mule: daily hunt poll ran. Next at', next.toISOString());
+      beerMulePollTimer = setTimeout(() => {
+        runOnce();
+        scheduleNextDaily(true);
+      }, ms);
+    }
+    scheduleNextDaily(false);
+  } else {
+    const sec = Math.max(60, Number(state.config?.beerHuntPollIntervalSeconds) || 300);
+    beerMulePollTimer = setInterval(runOnce, sec * 1000);
+    console.log('Beer Mule: hunt poll scheduled every', sec, 's');
+  }
+}
+
+app.post('/api/beer-mule/sync', express.json(), (req, res) => {
+  try {
+    const { hunts, config } = req.body || {};
+    const state = readBeerMuleState();
+    if (Array.isArray(hunts)) {
+      state.hunts = hunts.map((h) => ({
+        ...h,
+        id: h.id || `hunt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        enabled: h.enabled !== false,
+        sources: Array.isArray(h.sources) ? h.sources : ['untappd'],
+        createdAt: h.createdAt || new Date().toISOString(),
+      }));
+    }
+    if (config && typeof config === 'object') {
+      state.config = {
+        ...state.config,
+        beerHuntPollIntervalSeconds: Math.max(60, Number(config.beerHuntPollIntervalSeconds) || 300),
+        alertWhatsAppNumber: typeof config.alertWhatsAppNumber === 'string' ? config.alertWhatsAppNumber : (state.config?.alertWhatsAppNumber || ''),
+        beerHuntScheduleMode: config.beerHuntScheduleMode === 'daily' ? 'daily' : 'interval',
+        beerHuntDailyTime: typeof config.beerHuntDailyTime === 'string' && /^\d{1,2}:\d{2}$/.test(config.beerHuntDailyTime.trim()) ? config.beerHuntDailyTime.trim().slice(0, 5) : (state.config?.beerHuntDailyTime || '09:00'),
+      };
+    }
+    writeBeerMuleState(state);
+    scheduleBeerMulePoll();
+    res.json({ success: true, huntsCount: (state.hunts || []).length });
+  } catch (e) {
+    console.error('Beer Mule sync error:', e.message);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.get('/api/beer-mule/sightings', (req, res) => {
+  try {
+    const state = readBeerMuleState();
+    const sightings = (state.sightings || []).map((s) => ({
+      ...s,
+      detectedAt: typeof s.detectedAt === 'string' ? s.detectedAt : (s.detectedAt && s.detectedAt.toISOString ? s.detectedAt.toISOString() : new Date().toISOString()),
+    }));
+    res.json({ success: true, sightings });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.post('/api/beer-mule/sightings/clear', express.json(), (req, res) => {
+  try {
+    const { huntId } = req.body || {};
+    if (!huntId || typeof huntId !== 'string') {
+      return res.status(400).json({ success: false, error: 'huntId required' });
+    }
+    const state = readBeerMuleState();
+    const before = (state.sightings || []).length;
+    state.sightings = (state.sightings || []).filter((s) => s.huntId !== huntId);
+    const removed = before - state.sightings.length;
+    writeBeerMuleState(state);
+    res.json({ success: true, removed });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.get('/api/beer-mule/status', (req, res) => {
+  try {
+    const state = readBeerMuleState();
+    const cfg = state.config || {};
+    const mode = cfg.beerHuntScheduleMode === 'daily' ? 'daily' : 'interval';
+    const intervalSeconds = Math.max(60, Number(cfg.beerHuntPollIntervalSeconds) || 300);
+    const dailyTime = (cfg.beerHuntDailyTime || '09:00').trim().slice(0, 5);
+    const [dailyHour = 9, dailyMin = 0] = dailyTime.split(':').map(Number);
+    let nextPollAt = null;
+    const now = new Date();
+    if (mode === 'daily') {
+      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), dailyHour, dailyMin, 0, 0);
+      if (next <= now) next.setDate(next.getDate() + 1);
+      nextPollAt = next.toISOString();
+    } else {
+      const last = state.lastPollAt ? new Date(state.lastPollAt) : null;
+      const base = last && last.getTime() > 0 ? last : now;
+      nextPollAt = new Date(base.getTime() + intervalSeconds * 1000).toISOString();
+    }
+    res.json({
+      success: true,
+      lastPollAt: state.lastPollAt || null,
+      nextPollAt,
+      scheduleMode: mode,
+      intervalSeconds: mode === 'interval' ? intervalSeconds : null,
+      dailyTime: mode === 'daily' ? dailyTime : null,
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.post('/api/beer-mule/run-poll', (req, res) => {
+  runBeerHuntPoll()
+    .then(() => res.json({ success: true }))
+    .catch((e) => {
+      console.error('Beer Mule run-poll error:', e.message);
+      res.status(500).json({ success: false, error: e.message });
+    });
+});
+
+app.post('/api/beer-mule/sightings', express.json(), (req, res) => {
+  try {
+    const { huntId, venueName, venueAddress, venueType, sourceUrl } = req.body || {};
+    if (!huntId || !venueName || typeof venueName !== 'string' || !venueName.trim()) {
+      return res.status(400).json({ success: false, error: 'huntId and venueName required' });
+    }
+    const state = readBeerMuleState();
+    const hunt = (state.hunts || []).find((h) => h.id === huntId);
+    if (!hunt) return res.status(404).json({ success: false, error: 'Hunt not found' });
+    const sighting = {
+      id: `sight-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      huntId,
+      beerName: hunt.beerName,
+      venueName: String(venueName).trim(),
+      venueAddress: venueAddress && String(venueAddress).trim() ? String(venueAddress).trim() : undefined,
+      venueType: ['bar', 'restaurant', 'pub', 'bottle_shop', 'other'].includes(String(venueType || 'bar').toLowerCase()) ? String(venueType).toLowerCase() : 'bar',
+      source: 'manual',
+      detectedAt: new Date().toISOString(),
+      alertSent: false,
+      sourceUrl: sourceUrl && String(sourceUrl).trim() ? String(sourceUrl).trim() : undefined,
+    };
+    state.sightings = state.sightings || [];
+    state.sightings.push(sighting);
+    writeBeerMuleState(state);
+    res.json({ success: true, sighting });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ----- Beer Mule: Instagram / Troon — scrape via Apify, send full post + ordering URL -----
+const BEER_MULE_INSTAGRAM_WATCH = (process.env.BEER_MULE_INSTAGRAM_WATCH || 'troonbrewing').toLowerCase().split(',').map((s) => s.trim().replace(/^@/, '')).filter(Boolean);
+const BEER_MULE_SEEN_POSTS_PATH = path.join(__dirname, 'beer-mule-seen-posts.json');
+const BEER_MULE_CONFIG_PATH = path.join(__dirname, 'beer-mule-config.json');
+
+function readBeerMuleConfig() {
+  try {
+    if (fs.existsSync(BEER_MULE_CONFIG_PATH)) {
+      const raw = fs.readFileSync(BEER_MULE_CONFIG_PATH, 'utf8');
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.warn('Beer Mule config read failed:', e.message);
+  }
+  return {};
+}
+
+function writeBeerMuleConfig(updates) {
+  try {
+    const current = readBeerMuleConfig();
+    const next = { ...current, ...updates, updatedAt: new Date().toISOString() };
+    if (updates.apifyApiToken === '') next.apifyApiToken = '';
+    if (updates.apifyActorId !== undefined) next.apifyActorId = updates.apifyActorId;
+    fs.writeFileSync(BEER_MULE_CONFIG_PATH, JSON.stringify(next, null, 2), 'utf8');
+  } catch (e) {
+    console.warn('Beer Mule config write failed:', e.message);
+  }
+}
+
+/** Token and actor: env overrides file. Used by cron so UI-saved values are picked up without restart. */
+function getBeerMuleApifyConfig() {
+  const envToken = (process.env.BEER_MULE_APIFY_TOKEN || '').trim();
+  const envActor = (process.env.BEER_MULE_APIFY_ACTOR_ID || '').trim();
+  const file = readBeerMuleConfig();
+  const monitoringDays = Array.isArray(file.monitoringDays) ? file.monitoringDays : [];
+  const monitoringStartTime = (file.monitoringStartTime || '00:00').trim();
+  const monitoringEndTime = (file.monitoringEndTime || '23:59').trim();
+  return {
+    token: envToken || (file.apifyApiToken || '').trim(),
+    actor: (envActor || file.apifyActorId || 'apify/instagram-post-scraper').trim() || 'apify/instagram-post-scraper',
+    pollMinutes: Math.max(1, parseInt(process.env.BEER_MULE_POLL_MINUTES, 10) || parseInt(file.pollMinutes, 10) || 5),
+    monitoringDays,
+    monitoringStartTime: monitoringStartTime || '00:00',
+    monitoringEndTime: monitoringEndTime || '23:59',
+  };
+}
+
+/** True if current server time is within the configured monitoring window (days + start–end time). */
+function isWithinApifySchedule() {
+  const { monitoringDays, monitoringStartTime, monitoringEndTime } = getBeerMuleApifyConfig();
+  const now = new Date();
+  const day = now.getDay();
+  const pad = (n) => String(n).padStart(2, '0');
+  const currentTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  if (monitoringDays.length > 0 && !monitoringDays.includes(day)) return false;
+  if (monitoringStartTime && currentTime < monitoringStartTime) return false;
+  if (monitoringEndTime && currentTime > monitoringEndTime) return false;
+  return true;
+}
+
+// Known shop domain suffixes Troon and others use (bare "domain.square.site" in captions)
+const SHOP_DOMAIN_SUFFIXES = ['square.site', 'squareup.com', 'myshopify.com', 'shopify.com'];
+
+function extractUrlsFromText(text) {
+  if (!text || typeof text !== 'string') return [];
+  const out = [];
+  // Full https?:// URLs
+  const fullMatches = text.match(/https?:\/\/[^\s,)"'<>\]\]]+/gi) || [];
+  out.push(...fullMatches.map((u) => u.replace(/[.,;:!?]+$/, '')));
+  // Bare shop domains: subdomain.square.site, falsespring.square.site, etc. (allow optional spaces around dots)
+  for (const suffix of SHOP_DOMAIN_SUFFIXES) {
+    const parts = suffix.split('.').map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const relaxedSuffix = parts.join('\\s*\\.\\s*');
+    const re = new RegExp(`[a-z0-9][a-z0-9.-]*\\s*\\.\\s*${relaxedSuffix}(?:\\/[^\\s,)"'<>]*)?`, 'gi');
+    const bare = text.match(re) || [];
+    for (const b of bare) {
+      const normalized = (b.startsWith('http') ? b : `https://${b}`).replace(/\s/g, '').replace(/[.,;:!?]+$/, '');
+      if (normalized && !out.includes(normalized)) out.push(normalized);
+    }
+  }
+  // Fallback: any token containing square.site or squareup.com (Instagram may strip or wrap links)
+  const squareSiteRe = /[a-z0-9][a-z0-9.-]*\.?square\.site[a-z0-9.\-/]*/gi;
+  const squareupRe = /[a-z0-9][a-z0-9.-]*\.?squareup\.com[a-z0-9.\-/]*/gi;
+  for (const re of [squareSiteRe, squareupRe]) {
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const raw = m[0].replace(/\s/g, '');
+      const normalized = raw.startsWith('http') ? raw : `https://${raw}`;
+      const clean = normalized.replace(/[.,;:!?]+$/, '');
+      if (clean.length > 10 && !out.includes(clean)) out.push(clean);
+    }
+  }
+  return [...new Set(out)];
+}
+
+/** Collect all string values from an object (for raw post dump when caption is missing). */
+function collectAllStringsFromObject(obj, out, seen) {
+  if (!obj || seen.has(obj)) return;
+  seen.add(obj);
+  if (typeof obj === 'string') {
+    const t = obj.trim();
+    if (t.length > 0 && t.length < 5000) out.push(t);
+    return;
+  }
+  if (Array.isArray(obj)) {
+    for (const v of obj) collectAllStringsFromObject(v, out, seen);
+    return;
+  }
+  if (typeof obj === 'object') {
+    for (const v of Object.values(obj)) collectAllStringsFromObject(v, out, seen);
+  }
+}
+
+/** Send email + WhatsApp for one Troon (or watched) post. Used by webhook and by Apify poll. */
+async function sendBeerMulePostAlert(payload) {
+  const username = String(payload.username || '').toLowerCase().replace(/^@/, '');
+  const caption = payload.caption || payload.text || payload.content || '';
+  const postUrl = payload.url || payload.postUrl || payload.link || '';
+  const imageUrl = payload.imageUrl || payload.image || '';
+  const timestamp = payload.timestamp || payload.created || new Date().toISOString();
+
+  let fullPostText = (caption && String(caption).trim()) ? String(caption).trim() : '';
+  if (!fullPostText && payload.rawPost && typeof payload.rawPost === 'object') {
+    const strings = [];
+    collectAllStringsFromObject(payload.rawPost, strings, new Set());
+    fullPostText = [...new Set(strings)].filter((s) => s.length > 2 && !/^[\d.]+$/.test(s)).join('\n\n');
+  }
+  if (!fullPostText && payload.rawPost && typeof payload.rawPost === 'object') {
+    try {
+      const rawJson = JSON.stringify(payload.rawPost, null, 1);
+      fullPostText = 'Raw post data from feed:\n' + rawJson.slice(0, 4000) + (rawJson.length > 4000 ? '\n…(truncated)' : '');
+    } catch (_) {
+      fullPostText = '(no caption from feed)';
+    }
+  }
+  if (!fullPostText) fullPostText = '(no caption from feed)';
+
+  const label = username === 'troonbrewing' ? 'Troon' : `@${username}`;
+
+  const emailTo = getAdminEmail();
+  const whatsAppTo = getAdminWhatsAppNumber();
+  const emailConfigured = !!(useSendGrid || emailTransporter);
+  const whatsAppConfigured = !!twilioClient;
+
+  console.log('🍺 Beer Mule alert: emailTo=' + (emailTo ? emailTo.replace(/^(.{2}).*@(.+)$/, '$1***@$2') : '(none)') +
+    ', whatsAppTo=' + (whatsAppTo ? '***' + whatsAppTo.slice(-4) : '(none)') +
+    ', emailConfigured=' + emailConfigured + ', whatsAppConfigured=' + whatsAppConfigured);
+
+  const subject = `🍺 ${label} posted on Instagram`;
+  const bodyLines = [
+    `${label} posted on Instagram. Full post below:`,
+    '',
+    '--- FULL POST ---',
+    fullPostText,
+    '--- END POST ---',
+    '',
+  ];
+  if (postUrl) bodyLines.push(`Post link: ${postUrl}`);
+  if (imageUrl) bodyLines.push(`Image: ${imageUrl}`);
+  bodyLines.push('');
+  bodyLines.push(`Time: ${timestamp}`);
+  const bodyText = bodyLines.join('\n');
+
+  const shortMsg = `🍺 ${label} posted on Instagram.\n\n${fullPostText.slice(0, 1200)}${fullPostText.length > 1200 ? '…' : ''}${postUrl ? `\n\nPost: ${postUrl}` : ''}`;
+
+  let emailSent = false;
+  let whatsAppSent = false;
+  let emailError = null;
+  let whatsAppError = null;
+
+  if (emailTo && emailConfigured) {
+    try {
+      await sendEmailReply(emailTo, subject, bodyText);
+      emailSent = true;
+      console.log('🍺 Beer Mule (Troon): alert sent by email to', emailTo);
+    } catch (e) {
+      emailError = e.message || String(e);
+      console.error('🍺 Beer Mule (Troon): email send failed:', emailError);
+    }
+  } else if (!emailTo) {
+    console.warn('🍺 Beer Mule (Troon): no email sent — set admin email in Config → General (Contact Information) or ensure companies-config has adminEmail.');
+  } else {
+    console.warn('🍺 Beer Mule (Troon): no email sent — SendGrid/email not configured (set SENDGRID_API_KEY or SMTP in .env.backend).');
+  }
+  if (whatsAppTo && whatsAppConfigured) {
+    try {
+      await sendWhatsApp(shortMsg, false, `whatsapp:${whatsAppTo.replace(/^\+/, '').replace(/^whatsapp:/i, '')}`);
+      whatsAppSent = true;
+      console.log('🍺 Beer Mule (Troon): alert sent by WhatsApp');
+    } catch (e) {
+      whatsAppError = e.message || String(e);
+      console.error('🍺 Beer Mule (Troon): WhatsApp send failed:', whatsAppError);
+    }
+  } else if (!whatsAppTo) {
+    console.warn('🍺 Beer Mule (Troon): no WhatsApp sent — set admin WhatsApp in Config → General (Contact Information).');
+  } else {
+    console.warn('🍺 Beer Mule (Troon): no WhatsApp sent — Twilio not configured (set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_NUMBER in .env.backend).');
+  }
+  return { alerted: true, emailSent, whatsAppSent, emailError, whatsAppError };
+}
+
+app.post('/api/beermule/webhook', express.json(), async (req, res) => {
+  try {
+    const username = String(req.body.username || req.body.Username || '').toLowerCase().replace(/^@/, '');
+    if (!username) {
+      return res.status(400).json({ success: false, error: 'username required' });
+    }
+    const watched = BEER_MULE_INSTAGRAM_WATCH.length > 0 ? BEER_MULE_INSTAGRAM_WATCH : ['troonbrewing'];
+    if (!watched.includes(username)) {
+      res.json({ success: true, message: 'Post received; account not in watch list.', alerted: false });
+      return;
+    }
+    const result = await sendBeerMulePostAlert({
+      username,
+      caption: req.body.caption || req.body.Caption || req.body.text || req.body.Text || req.body.content || '',
+      url: req.body.url || req.body.Url || req.body.postUrl || req.body.PostUrl || req.body.link || '',
+      imageUrl: req.body.imageUrl || req.body.ImageUrl || req.body.image || '',
+      timestamp: req.body.timestamp || req.body.Timestamp || req.body.created || new Date().toISOString(),
+    });
+    res.json({ success: true, message: 'Post received; alert sent (email + WhatsApp).', ...result });
+  } catch (e) {
+    console.error('Beer Mule webhook error:', e.message);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ----- Beer Mule: Apify poll — fetch Troon's posts and send full post + URL -----
+/** Get caption text from an Apify/Instagram post object (many actors use different field names). */
+function getPostCaption(item) {
+  if (!item || typeof item !== 'object') return '';
+  const node = item.node && typeof item.node === 'object' ? item.node : item;
+  const raw =
+    node.caption
+    || node.caption_text
+    || node.text
+    || node.alt
+    || node.description
+    || node.title
+    || (node.edge_media_to_caption?.edges?.[0]?.node?.text)
+    || (node.node?.edge_media_to_caption?.edges?.[0]?.node?.text)
+    || (node.owner && typeof node.owner === 'object' ? (node.owner.caption || node.owner.bio || '') : '')
+    || (item.caption || item.caption_text || item.text || '')
+    || '';
+  let out = String(raw).trim();
+  if (out) return out;
+  out = findFirstLongTextInObject(node, 40);
+  if (out) return out;
+  return findFirstLongTextInObject(item, 40) || '';
+}
+
+/** Find first string value in object (or nested) that looks like a caption (long text, not a URL). */
+function findFirstLongTextInObject(obj, minLen) {
+  if (!obj || typeof obj !== 'object') return '';
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === 'owner' && v && typeof v === 'object') {
+      const fromOwner = findFirstLongTextInObject(v, minLen);
+      if (fromOwner) return fromOwner;
+    }
+    if (typeof v === 'string' && v.length >= minLen && !v.match(/^https?:\/\//i) && !v.match(/^[\w.-]+@[\w.-]+$/)) return v;
+  }
+  return '';
+}
+
+/** Get main post URL (Instagram permalink or display URL). */
+function getPostUrl(item, shortCode) {
+  if (!item || typeof item !== 'object') return '';
+  const node = item.node && typeof item.node === 'object' ? item.node : item;
+  const raw =
+    node.url
+    || node.displayUrl
+    || node.link
+    || node.permalink
+    || node.link_url
+    || node.external_url
+    || (node.video && node.video.url)
+    || (node.image && (node.image.url || node.image))
+    || item.url || item.displayUrl || item.permalink
+    || (shortCode ? `https://www.instagram.com/p/${shortCode}` : '');
+  let out = String(raw).trim();
+  if (out) return out;
+  out = findFirstUrlInObject(node);
+  if (out) return out;
+  return findFirstUrlInObject(item) || '';
+}
+
+/** Find first string in object (or nested) that looks like an HTTP URL. */
+function findFirstUrlInObject(obj) {
+  if (!obj || typeof obj !== 'object') return '';
+  for (const v of Object.values(obj)) {
+    if (typeof v === 'string' && v.match(/^https?:\/\/[^\s]+$/i)) return v.trim();
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      const nested = findFirstUrlInObject(v);
+      if (nested) return nested;
+    }
+  }
+  return '';
+}
+
+/** Get any URL(s) from post (caption text + known link fields). */
+function getPostUrls(item) {
+  if (!item || typeof item !== 'object') return [];
+  const caption = getPostCaption(item);
+  const fromCaption = extractUrlsFromText(caption);
+  const linkUrl = (item.link_url || item.external_url || item.url || item.displayUrl || item.permalink || '').trim();
+  const out = [...fromCaption];
+  if (linkUrl && !out.includes(linkUrl)) out.push(linkUrl);
+  const found = findFirstUrlInObject(item);
+  if (found && !out.includes(found)) out.push(found);
+  return out;
+}
+
+function readBeerMuleSeenPosts() {
+  try {
+    if (fs.existsSync(BEER_MULE_SEEN_POSTS_PATH)) {
+      const raw = fs.readFileSync(BEER_MULE_SEEN_POSTS_PATH, 'utf8');
+      const data = JSON.parse(raw);
+      const ids = Array.isArray(data) ? data : (data && Array.isArray(data.seenIds) ? data.seenIds : []);
+      if (ids.length > 0) console.log('🍺 Beer Mule Apify: loaded', ids.length, 'seen IDs from', path.basename(BEER_MULE_SEEN_POSTS_PATH));
+      return ids;
+    }
+  } catch (e) {
+    console.warn('Beer Mule seen posts read failed:', e.message, 'path:', BEER_MULE_SEEN_POSTS_PATH);
+  }
+  return [];
+}
+
+function writeBeerMuleSeenPosts(seenIds) {
+  try {
+    const kept = Array.isArray(seenIds) ? seenIds.slice(-500) : [];
+    fs.writeFileSync(BEER_MULE_SEEN_POSTS_PATH, JSON.stringify({ seenIds: kept, updatedAt: new Date().toISOString() }, null, 2), 'utf8');
+    console.log('🍺 Beer Mule Apify: saved', kept.length, 'seen IDs to', BEER_MULE_SEEN_POSTS_PATH);
+  } catch (e) {
+    console.warn('Beer Mule seen posts write failed:', e.message, 'path:', BEER_MULE_SEEN_POSTS_PATH);
+  }
+}
+
+function buildApifyInput(handle, limit, actorIdOrSlug) {
+  const h = handle.replace(/^@/, '');
+  const profileUrl = `https://www.instagram.com/${h}`;
+  if (String(actorIdOrSlug).includes('scrapier/instagram-profile-post-scraper')) {
+    return { startUrls: [profileUrl, h], maxPosts: limit };
+  }
+  if (String(actorIdOrSlug).includes('apidojo/instagram-scraper-api')) {
+    return { startUrls: [profileUrl], maxItems: limit };
+  }
+  if (String(actorIdOrSlug).includes('singhera07/instagram-scraper')) {
+    return { action: 'posts', username: h, limit: Math.min(limit, 50) };
+  }
+  return { startUrls: [profileUrl], maxItems: limit, username: h, resultsLimit: limit };
+}
+
+function parsePostsFromApifyResult(rawResults) {
+  const posts = [];
+  if (rawResults == null) return posts;
+  if (typeof rawResults === 'object' && Array.isArray(rawResults.items)) {
+    return parsePostsFromApifyResult(rawResults.items);
+  }
+  if (typeof rawResults === 'object' && rawResults.data && Array.isArray(rawResults.data.items)) {
+    return parsePostsFromApifyResult(rawResults.data.items);
+  }
+  if (typeof rawResults === 'object' && Array.isArray(rawResults.data)) {
+    return parsePostsFromApifyResult(rawResults.data);
+  }
+  if (typeof rawResults === 'object' && Array.isArray(rawResults.results)) {
+    return parsePostsFromApifyResult(rawResults.results);
+  }
+  // apidojo/instagram-scraper-api returns a flat array of post objects; some use different field names
+  if (Array.isArray(rawResults) && rawResults.length > 0) {
+    const first = rawResults[0];
+    const looksLikePost = first && typeof first === 'object' && (
+      first.caption != null || first.text != null || first.code != null || first.url != null ||
+      first.id != null || first.displayUrl != null || first.owner != null || first.createdAt != null ||
+      first.caption_text != null || first.shortcode != null || first.created_at != null
+    );
+    if (looksLikePost) {
+      return rawResults.filter((r) => r && typeof r === 'object');
+    }
+    if (first && typeof first === 'object') {
+      return rawResults.filter((r) => r && typeof r === 'object');
+    }
+    const arr = rawResults;
+    for (const r of arr) {
+      if (Array.isArray(r.latestPosts) && r.latestPosts.length > 0) {
+        posts.push(...r.latestPosts);
+      } else if (Array.isArray(r.posts) && r.posts.length > 0) {
+        posts.push(...r.posts);
+      } else if (Array.isArray(r.items) && r.items.length > 0) {
+        posts.push(...r.items);
+      } else if (r && typeof r === 'object' && (
+        r.caption != null || r.text != null || r.node != null || r.code != null ||
+        r.url != null || r.id != null || r.displayUrl != null || r.owner != null || r.createdAt != null
+      )) {
+        posts.push(r);
+      }
+    }
+    return posts;
+  }
+  const single = Array.isArray(rawResults) ? rawResults : [rawResults];
+  for (const r of single) {
+    if (Array.isArray(r?.latestPosts)) posts.push(...r.latestPosts);
+    else if (Array.isArray(r?.posts)) posts.push(...r.posts);
+    else if (Array.isArray(r?.items)) posts.push(...r.items);
+    else if (r && typeof r === 'object' && (r.caption != null || r.text != null || r.code != null || r.url != null || r.id != null)) posts.push(r);
+  }
+  return posts;
+}
+
+async function fetchTroonPostsFromApify(username) {
+  const { token, actor } = getBeerMuleApifyConfig();
+  if (!token) return [];
+  const actorId = actor.replace('/', '~');
+  const url = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}&format=json`;
+  const input = buildApifyInput(username, 15, actor);
+  console.log('🍺 Beer Mule Apify: running actor with input', JSON.stringify(input));
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    let errJson;
+    try { errJson = JSON.parse(errText); } catch (_) {}
+    if (res.status === 403 && errJson?.error?.type === 'actor-is-not-rented') {
+      console.warn('🍺 Beer Mule Apify: this actor must be rented (subscription) on Apify. Go to the actor page → Rent, or switch to a pay-per-run actor like apidojo/instagram-scraper-api.');
+    } else {
+      console.warn('Beer Mule Apify fetch failed:', res.status, errText.slice(0, 200));
+    }
+    return [];
+  }
+  let raw;
+  try {
+    raw = await res.json();
+  } catch (e) {
+    console.warn('Beer Mule Apify: response was not JSON');
+    return [];
+  }
+  let posts = parsePostsFromApifyResult(raw);
+  const isDemoOnly = posts.length > 0 && posts.every((p) => p && typeof p === 'object' && Object.keys(p).length <= 2 && (p.demo === true || (Object.keys(p).length === 1 && 'demo' in p)));
+  if (isDemoOnly) {
+    console.warn('🍺 Beer Mule Apify: run returned only demo/placeholder data (no real posts). Add a payment method in Apify Console → Billing, then run the actor once in Console with startUrls: [Troon profile] to verify real data.');
+    posts = [];
+  }
+  if (posts.length === 0 && raw != null && !isDemoOnly) {
+    const isArr = Array.isArray(raw);
+    const preview = isArr
+      ? `[array length ${raw.length}]`
+      : typeof raw === 'object'
+        ? `{${Object.keys(raw).slice(0, 10).join(', ')}}`
+        : String(raw).slice(0, 200);
+    console.warn('Beer Mule Apify: 0 posts parsed. Response:', preview);
+  }
+  // Sort newest first so "latest post" (e.g. today's beer release) is posts[0]
+  const getTime = (p) => {
+    const t = p.timestamp || p.takenAt || p.createdAt || p.created_at || p.date;
+    if (t == null) return 0;
+    const ms = typeof t === 'number' ? t : new Date(t).getTime();
+    return Number.isFinite(ms) ? ms : 0;
+  };
+  posts.sort((a, b) => getTime(b) - getTime(a));
+  return posts;
+}
+
+async function runBeerMuleApifyPoll(opts = {}) {
+  const { testSendLatest = false } = opts;
+  const token = getBeerMuleApifyConfig().token;
+  if (!token) {
+    return { postsFetched: 0, alertsSent: 0, firstRun: false, message: 'No Apify token configured.' };
+  }
+  const watched = BEER_MULE_INSTAGRAM_WATCH.length > 0 ? BEER_MULE_INSTAGRAM_WATCH : ['troonbrewing'];
+  let seenIds = readBeerMuleSeenPosts();
+  const isFirstRun = seenIds.length === 0;
+  let totalFetched = 0;
+  let alertsSent = 0;
+  let lastAlertResult = null;
+
+  for (const username of watched) {
+    try {
+      const posts = await fetchTroonPostsFromApify(username);
+      totalFetched += posts.length;
+      console.log('🍺 Beer Mule Apify: fetched', posts.length, 'posts for @' + username);
+
+      if (posts.length === 0) {
+        console.log('🍺 Beer Mule Apify: no posts returned (actor may use different output format or rate limit).');
+        continue;
+      }
+
+      if (isFirstRun && !testSendLatest) {
+        console.log('🍺 Beer Mule Apify: first run — seeding seen list and sending one alert for latest post so you can verify email/WhatsApp.');
+      }
+
+      const toProcess = testSendLatest && posts.length > 0
+        ? [posts[0]]
+        : posts;
+      let sentFirstRun = false;
+      const getItemTime = (p) => {
+        const t = p.timestamp || p.takenAt || p.createdAt || p.created_at || p.date;
+        return t != null ? (typeof t === 'number' ? t : new Date(t).getTime()) : 0;
+      };
+
+      for (let idx = 0; idx < toProcess.length; idx++) {
+        const item = toProcess[idx];
+        const rawId = String(item.id || item.shortCode || item.code || item.pk || item.url || '').trim();
+        const postId = rawId || `${username}-${idx}-${getItemTime(item)}`;
+        if (!testSendLatest && seenIds.includes(postId)) continue;
+        if (!testSendLatest) seenIds.push(postId);
+
+        const sendThisOne = testSendLatest || !isFirstRun || (isFirstRun && !sentFirstRun && item === posts[0]);
+        if (!sendThisOne) continue;
+
+        const caption = getPostCaption(item);
+        const shortCode = item.shortCode || item.code || (item.node && (item.node.shortCode || item.node.shortcode || item.node.code));
+        const postUrl = getPostUrl(item, shortCode);
+        if (item === posts[0] && !caption) {
+          const preview = {};
+          for (const [k, v] of Object.entries(item || {})) {
+            if (typeof v === 'string') preview[k] = v.length > 80 ? v.slice(0, 80) + '…' : v;
+            else if (typeof v === 'number' || typeof v === 'boolean') preview[k] = v;
+            else if (v && typeof v === 'object' && !Array.isArray(v) && k === 'owner') preview.owner = Object.fromEntries(Object.entries(v).slice(0, 5).map(([kk, vv]) => [kk, typeof vv === 'string' ? String(vv).slice(0, 60) : vv]));
+          }
+          console.log('🍺 Beer Mule Apify: first post preview (caption/url empty?)', JSON.stringify(preview).slice(0, 600));
+        }
+        try {
+          lastAlertResult = await sendBeerMulePostAlert({
+            username,
+            caption: caption || '',
+            url: postUrl,
+            rawPost: item,
+            imageUrl: item.imageUrl || item.displayUrl || '',
+            timestamp: item.timestamp || item.takenAt || item.createdAt || item.created_at || new Date().toISOString(),
+          });
+          alertsSent++;
+        } catch (sendErr) {
+          console.error('🍺 Beer Mule Apify: send alert failed (email/WhatsApp may still be sent):', sendErr.message);
+        }
+        if (isFirstRun) sentFirstRun = true;
+      }
+      if (!testSendLatest) writeBeerMuleSeenPosts(seenIds);
+    } catch (e) {
+      console.warn('Beer Mule Apify poll error for', username, ':', e.message);
+      try {
+        writeBeerMuleSeenPosts(seenIds);
+      } catch (_) {}
+    }
+  }
+
+  let message = `Fetched ${totalFetched} post(s).`;
+  if (alertsSent > 0) {
+    message += ` Sent ${alertsSent} alert(s) — check email and WhatsApp.`;
+    if (lastAlertResult && (lastAlertResult.emailSent === false || lastAlertResult.whatsAppSent === false)) {
+      const parts = [];
+      if (lastAlertResult.emailSent === false) parts.push('email: ' + (lastAlertResult.emailError || 'not configured or no admin email'));
+      if (lastAlertResult.whatsAppSent === false) parts.push('WhatsApp: ' + (lastAlertResult.whatsAppError || 'not configured or no admin WhatsApp'));
+      if (parts.length) message += ' (' + parts.join('; ') + ')';
+    }
+  } else if (totalFetched === 0) {
+    message += ' Apify returned 0 posts. Check backend terminal for "Beer Mule Apify: 0 posts parsed" to see the response shape. Run the actor once in Apify Console (same input: startUrls + maxItems) to confirm it returns data and you have pay-per-run credit.';
+  } else if (isFirstRun && !testSendLatest) message += ' First run: seen list seeded. Run again or wait for next poll to get alerts for new posts.';
+  else message += ' No new posts since last run.';
+
+  const out = { postsFetched: totalFetched, alertsSent, firstRun: isFirstRun, message };
+  if (lastAlertResult) out.emailSent = lastAlertResult.emailSent;
+  if (lastAlertResult) out.whatsAppSent = lastAlertResult.whatsAppSent;
+  if (lastAlertResult?.emailError) out.emailError = lastAlertResult.emailError;
+  if (lastAlertResult?.whatsAppError) out.whatsAppError = lastAlertResult.whatsAppError;
+  return out;
+}
+
+const beerMulePollMins = getBeerMuleApifyConfig().pollMinutes;
+cron.schedule(`*/${beerMulePollMins} * * * *`, () => {
+  if (!isWithinApifySchedule()) return;
+  runBeerMuleApifyPoll().catch((e) => console.warn('Beer Mule Apify cron error:', e.message));
+});
+console.log(`🍺 Beer Mule: Apify poll scheduled every ${beerMulePollMins} min (only between monitoring start/end time on selected days). Seen list: ${BEER_MULE_SEEN_POSTS_PATH}`);
+
+app.get('/api/beermule/config', (req, res) => {
+  try {
+    const file = readBeerMuleConfig();
+    const token = (file.apifyApiToken || '').trim();
+    res.json({
+      apifyActorId: (file.apifyActorId || 'apify/instagram-post-scraper').trim() || 'apify/instagram-post-scraper',
+      pollMinutes: Math.max(1, parseInt(file.pollMinutes, 10) || 5),
+      hasApifyToken: !!token,
+      apifyTokenMasked: token ? `apify_api_***${token.slice(-4)}` : '',
+      monitoringDays: Array.isArray(file.monitoringDays) ? file.monitoringDays : [],
+      monitoringStartTime: (file.monitoringStartTime || '00:00').trim(),
+      monitoringEndTime: (file.monitoringEndTime || '23:59').trim(),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/beermule/config', express.json(), (req, res) => {
+  try {
+    const { apifyApiToken, apifyActorId, pollMinutes, monitoringDays, monitoringStartTime, monitoringEndTime } = req.body || {};
+    const updates = {};
+    if (apifyApiToken !== undefined) updates.apifyApiToken = String(apifyApiToken || '').trim();
+    if (apifyActorId !== undefined) updates.apifyActorId = String(apifyActorId || 'apify/instagram-post-scraper').trim() || 'apify/instagram-post-scraper';
+    if (pollMinutes !== undefined) updates.pollMinutes = Math.max(1, parseInt(pollMinutes, 10) || 5);
+    if (monitoringDays !== undefined) updates.monitoringDays = Array.isArray(monitoringDays) ? monitoringDays : [];
+    if (monitoringStartTime !== undefined) updates.monitoringStartTime = String(monitoringStartTime || '00:00').trim();
+    if (monitoringEndTime !== undefined) updates.monitoringEndTime = String(monitoringEndTime || '23:59').trim();
+    writeBeerMuleConfig(updates);
+    res.json({ success: true, message: 'Beer Mule Apify config saved. Instagram polling runs only between start and end time on selected days.' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/beermule/run-poll', async (req, res) => {
+  try {
+    const testSendLatest = req.query.test === '1' || (req.body && req.body.test === true);
+    const result = await runBeerMuleApifyPoll({ testSendLatest });
+    res.json({ success: true, ...result });
+  } catch (e) {
+    console.warn('Beer Mule run-poll error:', e.message);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ----- Kandidly: hiring screener — score candidates vs job description; history; email + WhatsApp -----
+const KANDIDLY_HISTORY_PATH = path.join(__dirname, 'kandidly-history.json');
+const KANDIDLY_JDS_PATH = path.join(__dirname, 'kandidly-jds.json');
+const KANDIDLY_CANDIDATES_PATH = path.join(__dirname, 'kandidly-candidates.json');
+
+const KANDIDLY_SYSTEM_PROMPT = `You are Kandidly, an expert hiring screener. You evaluate candidate profiles and optional interview notes against a job description (JD) and provide in-depth, actionable insights.
+
+GUARDRAILS (mandatory):
+- Score ONLY on job-relevant criteria (skills, experience, behavior). Do not score or factor in protected attributes (age, gender, nationality, ethnicity, names, or similar).
+- If interview notes contain biased or discriminatory language, include a brief note in recommendationReasoning (e.g. "Note: interview notes contain language that may introduce bias; evaluation is based only on job-relevant evidence.").
+- Every output is advisory only; state in recommendationReasoning that the AI score is advisory and not a final hiring decision.
+
+For each candidate you MUST provide:
+1. **score** (1–10): Overall fit for the role; 10 = strong match. Also provide **score100** (0–100): same fit on a 0–100 scale.
+2. **skillsMatch** (0–100): Technical or functional skills vs JD requirements.
+3. **experienceRelevance** (0–100): Years, domain, and seniority relevance.
+4. **cultureFit** (0–100): Behavioral/culture fit based on interview notes (or 50 if no notes).
+5. **redFlagScore** (0–100): Lower is better; 0 = no concerns, 100 = serious red flags.
+6. **fitSummary**: 2–3 sentences (candidate summary).
+7. **detailedFitNarrative**: A full paragraph (4–6 sentences) with in-depth analysis. Cite JD and resume explicitly. Distinguish must-have vs nice-to-have gaps where possible. Flag any inconsistencies between resume and interview notes. If role level is specified and candidate appears overqualified, note it.
+8. **experienceVsRequirements**: Array of strings mapping JD requirements to candidate evidence. Cover 4–6 key requirements.
+9. **strengths**: Array of at least top 3 specific strengths with brief evidence.
+10. **gaps**: Array of at least top 3 concerns/gaps with brief evidence; label if must-have vs nice-to-have where relevant.
+11. **redFlags**: Array of red flags; empty if none.
+12. **interviewFocusAreas**: Array of 3–5 suggested follow-up questions; especially important if recommendation is "maybe".
+13. **recommendation**: One of "strong_fit" (Strong Yes), "possible_fit" (Yes), "maybe" (Maybe), "weak_fit" (No).
+14. **recommendationReasoning**: 2–3 sentences explaining the recommendation; include that the AI score is advisory, not a final hiring decision.
+
+Output ONLY a valid JSON object (no markdown, no other text) with this shape:
+{"candidates":[{"name":"...","score":8,"score100":80,"skillsMatch":85,"experienceRelevance":75,"cultureFit":70,"redFlagScore":10,"fitSummary":"...","detailedFitNarrative":"...","experienceVsRequirements":["..."],"strengths":["..."],"gaps":["..."],"redFlags":["..."],"interviewFocusAreas":["..."],"recommendation":"strong_fit|possible_fit|maybe|weak_fit","recommendationReasoning":"..."}]}
+Include one object per candidate in the same order as the input.`;
+
+function readKandidlyHistory() {
+  try {
+    if (fs.existsSync(KANDIDLY_HISTORY_PATH)) {
+      const raw = fs.readFileSync(KANDIDLY_HISTORY_PATH, 'utf8');
+      const data = JSON.parse(raw);
+      return Array.isArray(data.entries) ? data.entries : [];
+    }
+  } catch (e) {
+    console.warn('Kandidly history read failed:', e.message);
+  }
+  return [];
+}
+
+function writeKandidlyHistory(entries) {
+  fs.writeFileSync(KANDIDLY_HISTORY_PATH, JSON.stringify({ entries, updatedAt: new Date().toISOString() }, null, 2), 'utf8');
+}
+
+function readKandidlyJds() {
+  try {
+    if (fs.existsSync(KANDIDLY_JDS_PATH)) {
+      const raw = fs.readFileSync(KANDIDLY_JDS_PATH, 'utf8');
+      const data = JSON.parse(raw);
+      return Array.isArray(data.jds) ? data.jds : [];
+    }
+  } catch (e) {
+    console.warn('Kandidly JDs read failed:', e.message);
+  }
+  return [];
+}
+
+function writeKandidlyJds(jds) {
+  fs.writeFileSync(KANDIDLY_JDS_PATH, JSON.stringify({ jds, updatedAt: new Date().toISOString() }, null, 2), 'utf8');
+}
+
+function readKandidlyCandidates() {
+  try {
+    if (fs.existsSync(KANDIDLY_CANDIDATES_PATH)) {
+      const raw = fs.readFileSync(KANDIDLY_CANDIDATES_PATH, 'utf8');
+      const data = JSON.parse(raw);
+      return Array.isArray(data.candidates) ? data.candidates : [];
+    }
+  } catch (e) {
+    console.warn('Kandidly candidates read failed:', e.message);
+  }
+  return [];
+}
+
+function writeKandidlyCandidates(candidates) {
+  fs.writeFileSync(KANDIDLY_CANDIDATES_PATH, JSON.stringify({ candidates, updatedAt: new Date().toISOString() }, null, 2), 'utf8');
+}
+
+function findPreviousScreening(candidateName, roleLabel) {
+  const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const roleNorm = norm(roleLabel);
+  const nameNorm = norm(candidateName);
+  const history = readKandidlyHistory();
+  for (const record of history) {
+    const recordRoleNorm = norm(record.roleLabel);
+    if (recordRoleNorm && roleNorm && recordRoleNorm !== roleNorm && !recordRoleNorm.includes(roleNorm) && !roleNorm.includes(recordRoleNorm)) continue;
+    for (const c of record.candidates || []) {
+      if (norm(c.name) === nameNorm || (nameNorm && norm(c.name).includes(nameNorm)) || (norm(c.name) && nameNorm.includes(norm(c.name)))) {
+        return record;
+      }
+    }
+  }
+  return null;
+}
+
+function parseScreenRequest(text) {
+  if (!text || typeof text !== 'string') return null;
+  const lower = text.toLowerCase().trim();
+  const rerun = /\b(rerun|screen again|run again|re-run)\b/i.test(text);
+  const screenFor = text.match(/\bscreen\s+(.+?)\s+for\s+(.+?)(?:\.|$|\n)/i) || text.match(/\bscreen\s+(.+?)\s+for\s+(.+)/is);
+  if (screenFor) {
+    const candidateName = screenFor[1].trim();
+    const roleOrJd = screenFor[2].trim();
+    if (candidateName && roleOrJd) return { candidateName, roleOrJd, rerun };
+  }
+  const runScreeningFor = text.match(/\brun\s+screening\s+for\s+(.+?)\s+against\s+(.+?)(?:\.|$|\n)/i) || text.match(/\brun\s+screening\s+for\s+(.+?)\s+against\s+(.+)/is);
+  if (runScreeningFor) {
+    const candidateName = runScreeningFor[1].trim();
+    const roleOrJd = runScreeningFor[2].trim();
+    if (candidateName && roleOrJd) return { candidateName, roleOrJd, rerun };
+  }
+  return null;
+}
+
+function extractRoleLabelFromJd(jd) {
+  const firstLine = (jd || '').split(/\n/)[0]?.trim().slice(0, 120) || '';
+  return firstLine || 'Screening';
+}
+
+async function runKandidlyScreening(jd, validCandidates, jdMeta) {
+  let metaBlock = '';
+  if (jdMeta && typeof jdMeta === 'object') {
+    if (jdMeta.roleType) metaBlock += `\nRole type (weight scoring accordingly): ${jdMeta.roleType}`;
+    if (jdMeta.seniorityLevel) metaBlock += `\nSeniority level: ${jdMeta.seniorityLevel} (flag overqualified candidates if relevant)`;
+    if (jdMeta.mustHaves) metaBlock += `\nMust-haves:\n${jdMeta.mustHaves}`;
+    if (jdMeta.niceToHaves) metaBlock += `\nNice-to-haves:\n${jdMeta.niceToHaves}`;
+    if (jdMeta.redFlags) metaBlock += `\nRed flags to watch:\n${jdMeta.redFlags}`;
+    if (jdMeta.scoringWeights && typeof jdMeta.scoringWeights === 'object') metaBlock += `\nScoring weights (0–100 per dimension): ${JSON.stringify(jdMeta.scoringWeights)}`;
+  }
+  const context = `JOB DESCRIPTION:${metaBlock ? '\n' + metaBlock + '\n\n' : '\n'}${jd}\n\nCANDIDATES:\n${validCandidates.map((c, i) => `--- Candidate ${i + 1}: ${c.name} ---\nResume:\n${c.resume}${c.interviewNotes ? `\nInterview notes:\n${c.interviewNotes}` : ''}\n`).join('\n')}`;
+  const prompt = `Review the job description and each candidate's resume (and interview notes if provided). For each candidate provide: score (1–10), score100 (0–100), skillsMatch, experienceRelevance, cultureFit, redFlagScore (each 0–100), fitSummary, detailedFitNarrative, experienceVsRequirements, strengths (top 3+), gaps (top 3+), redFlags, interviewFocusAreas, recommendation (strong_fit|possible_fit|maybe|weak_fit), recommendationReasoning. Distinguish must-have vs nice-to-have gaps; flag resume/interview inconsistencies and overqualification if relevant. If role type or scoring weights are provided, weight dimensions accordingly. Output ONLY the JSON object with a "candidates" array.`;
+  let text = await askAI(prompt, context, { systemPrompt: KANDIDLY_SYSTEM_PROMPT });
+  const jsonMatch = (text || '').match(/\{[\s\S]*\}/);
+  let results = [];
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      results = Array.isArray(parsed.candidates) ? parsed.candidates : [];
+      results = results.map((c) => {
+        const score = c.score != null ? Number(c.score) : 0;
+        return {
+          ...c,
+          score100: c.score100 != null ? Number(c.score100) : Math.round(score * 10),
+          skillsMatch: c.skillsMatch != null ? Number(c.skillsMatch) : undefined,
+          experienceRelevance: c.experienceRelevance != null ? Number(c.experienceRelevance) : undefined,
+          cultureFit: c.cultureFit != null ? Number(c.cultureFit) : undefined,
+          redFlagScore: c.redFlagScore != null ? Number(c.redFlagScore) : undefined,
+        };
+      });
+    } catch (_) {}
+  }
+  return results;
+}
+
+async function sendKandidlyNotifications(record, adminEmail, adminWhatsApp) {
+  const roleLabel = record.roleLabel || 'Screening';
+  const lines = (record.candidates || []).map((r) => {
+    const rec = r.recommendation === 'strong_fit' ? 'Strong fit' : r.recommendation === 'possible_fit' ? 'Possible fit' : 'Weak fit';
+    return `${r.name || 'Candidate'}: ${r.score}/10 – ${rec}\n${(r.detailedFitNarrative || r.fitSummary || '').slice(0, 400)}${(r.detailedFitNarrative || r.fitSummary || '').length > 400 ? '…' : ''}`;
+  });
+  const emailBody = `Kandidly screening results – ${roleLabel}\n\n${(record.candidates || []).map((r) => {
+    const rec = r.recommendation === 'strong_fit' ? 'Strong fit' : r.recommendation === 'possible_fit' ? 'Possible fit' : 'Weak fit';
+    return `${r.name || 'Candidate'}: ${r.score}/10 – ${rec}\n\nFit summary: ${r.fitSummary || ''}\n\nDetailed: ${r.detailedFitNarrative || ''}\n\nExperience vs requirements: ${(r.experienceVsRequirements || []).join(' | ')}\nStrengths: ${(r.strengths || []).join('; ')}\nGaps: ${(r.gaps || []).join('; ')}\nRed flags: ${(r.redFlags || []).join('; ') || 'None'}\nInterview focus: ${(r.interviewFocusAreas || []).join('; ')}\nRecommendation reasoning: ${r.recommendationReasoning || ''}\n---`;
+  }).join('\n\n')}`;
+  if (adminEmail && (useSendGrid || emailTransporter)) {
+    await sendEmailReply(adminEmail, `Kandidly – ${roleLabel} – Screening results`, emailBody);
+    console.log('📧 Kandidly: results sent by email');
+  }
+  const whatsappSummary = `Kandidly – ${roleLabel}\n\n${lines.join('\n\n')}\n\nFull report sent to your email.`;
+  if (adminWhatsApp && twilioClient) {
+    const msg = whatsappSummary.length > 1400 ? whatsappSummary.slice(0, 1380) + '\n\n… Full report in email.' : whatsappSummary;
+    try {
+      await sendWhatsApp(msg, false, `whatsapp:${String(adminWhatsApp).replace(/^\+/, '').replace(/^whatsapp:/i, '')}`);
+      console.log('📱 Kandidly: results sent by WhatsApp');
+    } catch (e) {
+      console.warn('Kandidly WhatsApp failed:', e.message);
+    }
+  }
+}
+
+app.get('/api/kandidly/jds', (req, res) => {
+  try {
+    const jds = readKandidlyJds();
+    res.json({ success: true, jds });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.get('/api/kandidly/jds/:id', (req, res) => {
+  try {
+    const jds = readKandidlyJds();
+    const jd = jds.find((j) => j.id === req.params.id);
+    if (!jd) return res.status(404).json({ error: 'JD not found.' });
+    res.json({ success: true, jd });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.post('/api/kandidly/jds', express.json(), (req, res) => {
+  try {
+    const { title, content, roleType, seniorityLevel, mustHaves, niceToHaves, redFlags, scoringWeights } = req.body || {};
+    const t = typeof title === 'string' ? title.trim() : '';
+    const c = typeof content === 'string' ? content.trim() : '';
+    if (!t || !c) return res.status(400).json({ error: 'title and content are required.' });
+    const jds = readKandidlyJds();
+    const id = `jd_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const entry = { id, title: t, content: c, createdAt: new Date().toISOString() };
+    if (roleType && ['technical', 'leadership', 'sales'].includes(String(roleType))) entry.roleType = roleType;
+    if (seniorityLevel && ['junior', 'mid', 'senior', 'lead', 'executive'].includes(String(seniorityLevel))) entry.seniorityLevel = seniorityLevel;
+    if (typeof mustHaves === 'string' && mustHaves.trim()) entry.mustHaves = mustHaves.trim();
+    if (typeof niceToHaves === 'string' && niceToHaves.trim()) entry.niceToHaves = niceToHaves.trim();
+    if (typeof redFlags === 'string' && redFlags.trim()) entry.redFlags = redFlags.trim();
+    if (scoringWeights && typeof scoringWeights === 'object') entry.scoringWeights = scoringWeights;
+    jds.push(entry);
+    writeKandidlyJds(jds);
+    res.json({ success: true, id, title: t });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.get('/api/kandidly/candidates', (req, res) => {
+  try {
+    const candidates = readKandidlyCandidates();
+    res.json({ success: true, candidates });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.get('/api/kandidly/candidates/:id', (req, res) => {
+  try {
+    const candidates = readKandidlyCandidates();
+    const c = candidates.find((x) => x.id === req.params.id);
+    if (!c) return res.status(404).json({ error: 'Candidate not found.' });
+    res.json({ success: true, candidate: c });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.post('/api/kandidly/candidates', express.json(), (req, res) => {
+  try {
+    const { name, resume, interviewNotes } = req.body || {};
+    const n = typeof name === 'string' ? name.trim() : '';
+    const r = typeof resume === 'string' ? resume.trim() : '';
+    if (!n || !r) return res.status(400).json({ error: 'name and resume are required.' });
+    const candidates = readKandidlyCandidates();
+    const id = `c_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    candidates.push({ id, name: n, resume: r, interviewNotes: typeof interviewNotes === 'string' ? interviewNotes.trim() : '', createdAt: new Date().toISOString() });
+    writeKandidlyCandidates(candidates);
+    res.json({ success: true, id, name: n });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.post('/api/kandidly/screen', express.json(), async (req, res) => {
+  try {
+    const cfg = loadConfig();
+    if (!(cfg?.kandidly?.enabled === true)) {
+      return res.status(400).json({ error: 'Kandidly is disabled. Enable it in Config → Kandidly.' });
+    }
+    const { jobDescription, candidates, jdId, candidateIds, forceRerun } = req.body || {};
+    let jd = typeof jobDescription === 'string' ? jobDescription.trim() : '';
+    let list = Array.isArray(candidates) ? candidates : [];
+    let roleLabel = '';
+    let jdDoc = null;
+    const jds = readKandidlyJds();
+    const allCandidates = readKandidlyCandidates();
+    if (jdId && Array.isArray(candidateIds) && candidateIds.length > 0) {
+      jdDoc = jds.find((j) => j.id === jdId);
+      if (!jdDoc) return res.status(400).json({ error: 'JD not found.' });
+      jd = jdDoc.content;
+      roleLabel = jdDoc.title || extractRoleLabelFromJd(jd);
+      list = candidateIds.map((id) => {
+        const c = allCandidates.find((x) => x.id === id);
+        return c ? { name: c.name, resume: c.resume, interviewNotes: c.interviewNotes || '' } : null;
+      }).filter(Boolean);
+    }
+    if (!jd || list.length === 0) {
+      return res.status(400).json({ error: 'jobDescription and at least one candidate (with resume text) are required, or provide jdId and candidateIds.' });
+    }
+    const validCandidates = list
+      .map((c, i) => ({
+        name: typeof c.name === 'string' ? c.name.trim() || `Candidate ${i + 1}` : `Candidate ${i + 1}`,
+        resume: typeof c.resume === 'string' ? c.resume.trim() : '',
+        interviewNotes: typeof c.interviewNotes === 'string' ? c.interviewNotes.trim() : '',
+      }))
+      .filter((c) => c.resume.length > 0);
+    if (validCandidates.length === 0) {
+      return res.status(400).json({ error: 'Each candidate must have non-empty resume text.' });
+    }
+    if (!roleLabel) roleLabel = extractRoleLabelFromJd(jd);
+    const previous = !forceRerun && validCandidates.length === 1 ? findPreviousScreening(validCandidates[0].name, roleLabel) : null;
+    if (previous) {
+      const c0 = previous.candidates && previous.candidates[0];
+      return res.json({
+        success: true,
+        previousScreening: true,
+        message: `Already screened on ${new Date(previous.createdAt).toLocaleString()} for ${previous.roleLabel}: ${c0 ? `${c0.name} ${c0.score}/10 (${c0.recommendation})` : ''}. Use forceRerun: true to run again.`,
+        recordId: previous.id,
+        roleLabel: previous.roleLabel,
+        candidates: previous.candidates,
+      });
+    }
+    const results = await runKandidlyScreening(jd, validCandidates, jdDoc || undefined);
+    const recordId = `k_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const record = {
+      id: recordId,
+      createdAt: new Date().toISOString(),
+      roleLabel,
+      jobDescriptionSnippet: jd.slice(0, 300),
+      candidates: results,
+      jdId: jdId || null,
+      candidateIds: candidateIds || null,
+    };
+    const history = readKandidlyHistory();
+    history.unshift(record);
+    writeKandidlyHistory(history.slice(0, 200));
+    const adminEmail = getAdminEmail();
+    const adminWhatsApp = getAdminWhatsAppNumber();
+    await sendKandidlyNotifications(record, adminEmail, adminWhatsApp);
+    res.json({ success: true, candidates: results, recordId, roleLabel, error: results.length === 0 ? 'Could not parse AI response.' : null });
+  } catch (e) {
+    console.error('Kandidly screen error:', e.message);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.get('/api/kandidly/history', (req, res) => {
+  try {
+    const entries = readKandidlyHistory();
+    res.json({ success: true, entries });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.patch('/api/kandidly/history/:id', express.json(), (req, res) => {
+  try {
+    const entries = readKandidlyHistory();
+    const record = entries.find((e) => e.id === req.params.id);
+    if (!record) return res.status(404).json({ error: 'Record not found.' });
+    const manualNotes = req.body && typeof req.body.manualNotes === 'string' ? req.body.manualNotes.trim() : '';
+    record.manualNotes = manualNotes;
+    record.updatedAt = new Date().toISOString();
+    writeKandidlyHistory(entries);
+    res.json({ success: true, manualNotes: record.manualNotes });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.get('/api/kandidly/history/:id/export', (req, res) => {
+  try {
+    const entries = readKandidlyHistory();
+    const record = entries.find((e) => e.id === req.params.id);
+    if (!record) return res.status(404).json({ error: 'Record not found.' });
+    const format = (req.query.format || 'json').toLowerCase();
+    if (format === 'csv') {
+      const rows = [['Role', 'Date', 'Candidate', 'Score', 'Recommendation', 'Fit summary']];
+      for (const c of record.candidates || []) {
+        rows.push([record.roleLabel || '', record.createdAt || '', c.name || '', String(c.score || ''), c.recommendation || '', (c.fitSummary || '').replace(/\n/g, ' ')]);
+      }
+      const csv = rows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="kandidly-${record.id}.csv"`);
+      return res.send(csv);
+    }
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="kandidly-${record.id}.json"`);
+    res.json(record);
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+async function extractTextFromBuffer(buffer, filename, mimeType) {
+  const name = (filename || '').toLowerCase();
+  const mime = (mimeType || '').toLowerCase();
+  if (name.endsWith('.txt') || mime.includes('text/plain')) {
+    return buffer.toString('utf8');
+  }
+  if (name.endsWith('.docx') || mime.includes('application/vnd.openxmlformats-officedocument.wordprocessingml.document') || mime.includes('application/vnd.openxmlformats')) {
+    const mammoth = (await import('mammoth')).default;
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value || '';
+  }
+  if (name.endsWith('.doc') || mime.includes('application/msword')) {
+    try {
+      const mammoth = (await import('mammoth')).default;
+      const result = await mammoth.extractRawText({ buffer });
+      return result.value || '';
+    } catch (e) {
+      console.warn('mammoth .doc failed:', e.message);
+      return '';
+    }
+  }
+  return '';
+}
+
+app.post('/api/kandidly/extract-text', upload.single('file'), async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file || !file.buffer) {
+      return res.status(400).json({ error: 'No file uploaded. Use field name "file" and send a .txt, .doc, or .docx file.' });
+    }
+    const text = await extractTextFromBuffer(file.buffer, file.originalname, file.mimetype);
+    if (!text) {
+      return res.status(400).json({ error: 'Could not extract text. Use .txt, .doc, or .docx.' });
+    }
+    res.json({ success: true, text });
+  } catch (e) {
+    console.error('Kandidly extract-text error:', e.message);
     res.status(500).json({ success: false, error: e.message });
   }
 });
@@ -3095,6 +4961,72 @@ function decryptPaymentToken(encrypted) {
   let dec = decipher.update(encrypted.data, 'base64', 'utf8');
   dec += decipher.final('utf8');
   return dec;
+}
+
+const HENRY_AUTO_PAYMENT_KEY = 'henry_auto';
+
+function getHenryAutoPaymentMethod() {
+  try {
+    if (!fs.existsSync(TRAVEL_PAYMENT_TOKENS_PATH)) return null;
+    const raw = fs.readFileSync(TRAVEL_PAYMENT_TOKENS_PATH, 'utf8');
+    const tokens = JSON.parse(raw);
+    const entry = tokens[HENRY_AUTO_PAYMENT_KEY];
+    if (!entry?.encrypted) return null;
+    return decryptPaymentToken(entry.encrypted);
+  } catch (e) {
+    console.warn('Henry auto payment method read failed:', e.message);
+    return null;
+  }
+}
+
+function setHenryAutoPaymentMethod(paymentMethodId) {
+  if (!paymentMethodId || typeof paymentMethodId !== 'string' || !paymentMethodId.trim()) return;
+  let tokens = {};
+  if (fs.existsSync(TRAVEL_PAYMENT_TOKENS_PATH)) {
+    try {
+      tokens = JSON.parse(fs.readFileSync(TRAVEL_PAYMENT_TOKENS_PATH, 'utf8'));
+    } catch (_) {}
+  }
+  const encrypted = encryptPaymentToken(paymentMethodId.trim());
+  tokens[HENRY_AUTO_PAYMENT_KEY] = { encrypted, at: new Date().toISOString() };
+  fs.writeFileSync(TRAVEL_PAYMENT_TOKENS_PATH, JSON.stringify(tokens, null, 2), 'utf8');
+}
+
+/** Charge a Stripe PaymentMethod (for Henry auto-book). amountCents = price in cents; currency = 'usd' etc. Returns { success, error? }. */
+async function chargeStripePaymentMethod(paymentMethodId, amountCents, currency) {
+  const secret = process.env.STRIPE_SECRET_KEY || (loadConfig()?.travelAgent?.stripeSecretKey && loadConfig().travelAgent.stripeSecretKey !== '••••••••' ? loadConfig().travelAgent.stripeSecretKey : null);
+  if (!secret) return { success: false, error: 'Stripe not configured (set STRIPE_SECRET_KEY).' };
+  const curr = (currency || 'usd').toLowerCase().slice(0, 3);
+  if (amountCents < 50) return { success: false, error: 'Amount too small.' };
+  try {
+    const body = new URLSearchParams({
+      amount: String(Math.round(amountCents)),
+      currency: curr,
+      payment_method: paymentMethodId,
+      confirm: 'true',
+      automatic_payment_methods: JSON.stringify({ enabled: false }),
+    });
+    const res = await fetch('https://api.stripe.com/v1/payment_intents', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: body.toString(),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      const err = (() => { try { const j = JSON.parse(text); return j.error?.message || text; } catch (_) { return text; } })();
+      return { success: false, error: err };
+    }
+    const data = (() => { try { return JSON.parse(text); } catch (_) { return {}; } })();
+    if (data.status === 'succeeded' || data.status === 'requires_capture') {
+      return { success: true };
+    }
+    return { success: false, error: data.status || 'Payment not completed' };
+  } catch (e) {
+    return { success: false, error: e.message || 'Stripe request failed' };
+  }
 }
 
 app.post('/api/travel/plan', express.json(), async (req, res) => {
@@ -3357,14 +5289,177 @@ function writeHenryItems(items) {
   fs.writeFileSync(HENRY_ITEMS_PATH, JSON.stringify({ items, updatedAt: new Date().toISOString() }, null, 2), 'utf8');
 }
 
+// ----- Henry: hard-to-get restaurant alerts (monitor specific day/time, alert when reservations open) -----
+function getTimeInET() {
+  const s = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' });
+  const [hour, minute] = s.split(':').map((n) => parseInt(n, 10) || 0);
+  const dayName = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'long' });
+  const dateKey = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  return { hour, minute, dayName, dateKey };
+}
+
+function readHenryRestaurantAlertsFired() {
+  try {
+    if (fs.existsSync(HENRY_RESTAURANT_ALERTS_PATH)) {
+      const raw = fs.readFileSync(HENRY_RESTAURANT_ALERTS_PATH, 'utf8');
+      const data = JSON.parse(raw);
+      return data.lastFired && typeof data.lastFired === 'object' ? data.lastFired : {};
+    }
+  } catch (e) {
+    console.warn('Henry restaurant alerts read failed:', e.message);
+  }
+  return {};
+}
+
+function writeHenryRestaurantAlertsFired(lastFired) {
+  fs.writeFileSync(HENRY_RESTAURANT_ALERTS_PATH, JSON.stringify({ lastFired, updatedAt: new Date().toISOString() }, null, 2), 'utf8');
+}
+
+const RESY_ORIGIN = 'https://resy.com';
+const RESY_API = 'https://api.resy.com';
+
+async function resyLogin(email, password) {
+  if (!email || !password || typeof fetch !== 'function') return null;
+  try {
+    const res = await fetch(`${RESY_API}/3/auth/password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: RESY_ORIGIN, Referer: `${RESY_ORIGIN}/` },
+      body: JSON.stringify({ email: email.trim(), password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    const token = data.token || data.auth_token;
+    const apiKey = data.api_key || (data.user && data.user.api_key);
+    if (token) return { authToken: token, apiKey: apiKey || '' };
+    return null;
+  } catch (e) {
+    console.warn('Resy login failed:', e.message);
+    return null;
+  }
+}
+
+async function resyFindVenue(apiKey, authToken, name, city) {
+  if (!apiKey || !authToken || typeof fetch !== 'function') return null;
+  try {
+    const res = await fetch(`${RESY_API}/3/venues?query=${encodeURIComponent(name)}&location=${encodeURIComponent(city || '')}`, {
+      headers: { Authorization: `ResyAPI api_key="${apiKey}"`, 'x-resy-auth-token': authToken, Origin: RESY_ORIGIN },
+    });
+    const data = await res.json().catch(() => ({}));
+    const venues = data.venues || data.results || [];
+    const v = venues[0];
+    return v ? (v.venue_id || v.id || v) : null;
+  } catch (e) {
+    console.warn('Resy find venue failed:', e.message);
+    return null;
+  }
+}
+
+async function resyFindAndBook(cfg, restaurant, availabilityStr) {
+  const email = (cfg?.travelAgent?.resyEmail || '').trim();
+  const password = cfg?.travelAgent?.resyPassword || '';
+  if (!email || !password || password === '••••••••') return { booked: false, reason: 'no_credentials' };
+  const auth = await resyLogin(email, password);
+  if (!auth) return { booked: false, reason: 'login_failed' };
+  const venueId = await resyFindVenue(auth.apiKey, auth.authToken, restaurant.name, restaurant.city);
+  if (!venueId) return { booked: false, reason: 'venue_not_found' };
+  const advanceWeeks = restaurant.advanceWeeks != null ? restaurant.advanceWeeks : 2;
+  const partySize = Math.min(20, Math.max(1, parseInt(restaurant.partySize, 10) || 2));
+  const targetDate = new Date();
+  targetDate.setDate(targetDate.getDate() + advanceWeeks * 7);
+  const dayStr = targetDate.toISOString().slice(0, 10);
+  try {
+    const findUrl = `${RESY_API}/4/find?day=${dayStr}&party_size=${partySize}&venue_id=${venueId}&lat=0&long=0`;
+    const findRes = await fetch(findUrl, {
+      headers: { Authorization: `ResyAPI api_key="${auth.apiKey}"`, 'x-resy-auth-token': auth.authToken, Origin: RESY_ORIGIN },
+    });
+    const findData = await findRes.json().catch(() => ({}));
+    const options = findData.reservations || findData.slots || findData.options || [];
+    const slot = options[0];
+    if (!slot) return { booked: false, reason: 'no_slots' };
+    const configId = slot.config_id || slot.id;
+    const bookRes = await fetch(`${RESY_API}/3/details`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `ResyAPI api_key="${auth.apiKey}"`, 'x-resy-auth-token': auth.authToken, Origin: RESY_ORIGIN },
+      body: JSON.stringify({ config_id: configId, day: dayStr, party_size: partySize }),
+    });
+    const bookData = await bookRes.json().catch(() => ({}));
+    if (bookData.reservation_id || bookData.status === 'confirmed') {
+      console.log('Resy auto-book success for', restaurant.name);
+      return { booked: true };
+    }
+    return { booked: false, reason: 'book_request_failed' };
+  } catch (e) {
+    console.warn('Resy find/book failed:', e.message);
+    return { booked: false, reason: e.message };
+  }
+}
+
+async function runHenryHardToGetRestaurantAlerts() {
+  const cfg = loadConfig();
+  if (!(cfg?.travelAgent?.enabled && Array.isArray(cfg?.travelAgent?.hardToGetRestaurants) && cfg.travelAgent.hardToGetRestaurants.length > 0)) return;
+  const adminEmail = getAdminEmail();
+  const adminWhatsApp = getAdminWhatsAppNumber();
+  if (!adminEmail && !adminWhatsApp) return;
+  const { hour, minute, dayName, dateKey } = getTimeInET();
+  const availability = (cfg?.travelAgent?.restaurantAvailability || '').trim();
+  const availabilityLine = availability ? `\nYour availability: ${availability}` : '';
+  const list = cfg.travelAgent.hardToGetRestaurants;
+  const lastFired = readHenryRestaurantAlertsFired();
+  let changed = false;
+  for (const r of list) {
+    const openTimeET = (r.openTimeET || '09:00').trim();
+    const [openHour, openMin] = openTimeET.split(':').map((n) => parseInt(n, 10) || 0);
+    const openDay = (r.openDayOfWeek || 'Any').trim();
+    const matchTime = hour === openHour && minute >= openMin && minute < openMin + 3;
+    const matchDay = openDay === 'Any' || openDay.toLowerCase() === dayName.toLowerCase();
+    const key = `${(r.name || '').trim()}|${(r.city || '').trim()}`;
+    if (!matchTime || !matchDay) continue;
+    if (lastFired[key] === dateKey) continue;
+    const link = (r.bookingLink || '').trim() || (r.platform === 'OpenTable' ? 'https://www.opentable.com' : r.platform === 'Resy' ? 'https://resy.com' : r.platform === 'Tock' ? 'https://www.exploretock.com' : '');
+    const advanceWeeks = r.advanceWeeks != null ? r.advanceWeeks : 2;
+    const partySize = Math.min(20, Math.max(1, parseInt(r.partySize, 10) || 2));
+    let autoBookNote = '';
+    if (r.platform === 'Resy' && cfg.travelAgent.resyEmail && cfg.travelAgent.resyPassword && cfg.travelAgent.resyPassword !== '••••••••') {
+      const bookResult = await resyFindAndBook(cfg, r, availability);
+      if (bookResult.booked) autoBookNote = '\n\n✅ Henry has attempted to book for you via Resy. Check your Resy app or email to confirm.';
+      else if (bookResult.reason && bookResult.reason !== 'no_slots') autoBookNote = `\n\n(Auto-book did not complete: ${bookResult.reason}. Book manually.)`;
+    }
+    if (r.platform === 'OpenTable' && cfg.travelAgent.openTableEmail && cfg.travelAgent.openTablePassword && cfg.travelAgent.openTablePassword !== '••••••••') {
+      autoBookNote = '\n\n(OpenTable auto-book is not yet supported; book manually using the link below.)';
+    }
+    const msg = `🍽 Henry – Reservation window open NOW\n\n${r.name}${r.city ? `, ${r.city}` : ''}\nParty size: ${partySize}. Reservations for ${advanceWeeks} weeks ahead just opened at ${openTimeET} ET. Book immediately—slots fill in seconds. Henry will book within your availability (month/days you provided).${link ? `\nBook: ${link}` : ''}${availabilityLine}${autoBookNote}`;
+    if (adminEmail && (useSendGrid || emailTransporter)) {
+      await sendEmailReply(adminEmail, `Henry – ${r.name} reservations open now`, msg);
+      console.log('📧 Henry: hard-to-get alert sent by email for', r.name);
+    }
+    if (adminWhatsApp && twilioClient) {
+      const shortMsg = msg.length > 1400 ? msg.slice(0, 1380) + '\n\n… Full details in email.' : msg;
+      try {
+        await sendWhatsApp(shortMsg, false, `whatsapp:${String(adminWhatsApp).replace(/^\+/, '').replace(/^whatsapp:/i, '')}`);
+        console.log('📱 Henry: hard-to-get alert sent by WhatsApp for', r.name);
+      } catch (e) {
+        console.warn('Henry hard-to-get WhatsApp failed:', e.message);
+      }
+    }
+    lastFired[key] = dateKey;
+    changed = true;
+  }
+  if (changed) writeHenryRestaurantAlertsFired(lastFired);
+}
+
 // ----- Henry: flight price monitoring (monitor trips, history, AI recommend buy, alert WhatsApp + email) -----
+const HENRY_PENDING_FLIGHT_BOOKING_PATH = path.join(__dirname, 'henry-pending-flight-booking.json');
+
 function loadHenryPriceMonitor() {
   try {
     if (fs.existsSync(HENRY_PRICE_MONITOR_PATH)) {
       const raw = fs.readFileSync(HENRY_PRICE_MONITOR_PATH, 'utf8');
       const data = JSON.parse(raw);
+      const trips = (Array.isArray(data.monitoredTrips) ? data.monitoredTrips : []).map((t) => ({
+        ...t,
+        passengers: Array.isArray(t.passengers) ? t.passengers : [],
+      }));
       return {
-        monitoredTrips: Array.isArray(data.monitoredTrips) ? data.monitoredTrips : [],
+        monitoredTrips: trips,
         priceHistory: data.priceHistory && typeof data.priceHistory === 'object' ? data.priceHistory : {},
       };
     }
@@ -3372,6 +5467,26 @@ function loadHenryPriceMonitor() {
     console.warn('Henry price monitor read failed:', e.message);
   }
   return { monitoredTrips: [], priceHistory: {} };
+}
+
+function loadHenryPendingFlightBooking() {
+  try {
+    if (fs.existsSync(HENRY_PENDING_FLIGHT_BOOKING_PATH)) {
+      const raw = fs.readFileSync(HENRY_PENDING_FLIGHT_BOOKING_PATH, 'utf8');
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.warn('Henry pending flight booking read failed:', e.message);
+  }
+  return null;
+}
+
+function saveHenryPendingFlightBooking(pending) {
+  if (!pending) {
+    if (fs.existsSync(HENRY_PENDING_FLIGHT_BOOKING_PATH)) fs.unlinkSync(HENRY_PENDING_FLIGHT_BOOKING_PATH);
+    return;
+  }
+  fs.writeFileSync(HENRY_PENDING_FLIGHT_BOOKING_PATH, JSON.stringify({ ...pending, updatedAt: new Date().toISOString() }, null, 2), 'utf8');
 }
 
 function saveHenryPriceMonitor(data) {
@@ -3459,8 +5574,9 @@ async function fetchAmadeusFlightOffers(trip) {
     }
     const json = await res.json();
     const offers = json.data || [];
+    const dictionaries = json.dictionaries || {};
     if (offers.length === 0) return null;
-    let best = null;
+    let bestOffer = null;
     let bestTotal = Infinity;
     for (const offer of offers) {
       const p = offer.price;
@@ -3468,27 +5584,148 @@ async function fetchAmadeusFlightOffers(trip) {
       const total = parseFloat(String(p.grandTotal).replace(/,/g, '.'));
       if (Number.isFinite(total) && total < bestTotal) {
         bestTotal = total;
-        best = { price: Math.round(total), currency: (p.currency || trip.currency || 'USD').toUpperCase() };
+        bestOffer = offer;
       }
     }
-    return best;
+    if (!bestOffer) return null;
+    const p = bestOffer.price;
+    return {
+      price: Math.round(parseFloat(String(p.grandTotal).replace(/,/g, '.'))),
+      currency: (p.currency || trip.currency || 'USD').toUpperCase(),
+      rawOffer: bestOffer,
+      dictionaries,
+    };
   } catch (e) {
     console.warn('Amadeus flight offers error:', e.message);
     return null;
   }
 }
 
+// Build human-readable itinerary from Amadeus flight offer (carriers, flight numbers, dep/arr times)
+function formatFlightOfferItinerary(rawOffer, dictionaries = {}) {
+  if (!rawOffer || !Array.isArray(rawOffer.itineraries)) return '';
+  const carriers = dictionaries.carriers || {};
+  const lines = [];
+  rawOffer.itineraries.forEach((itin, idx) => {
+    const legLabel = rawOffer.itineraries.length > 1 ? `Leg ${idx + 1}: ` : '';
+    (itin.segments || []).forEach((seg) => {
+      const dep = seg.departure || {};
+      const arr = seg.arrival || {};
+      const atDep = dep.at ? new Date(dep.at) : null;
+      const atArr = arr.at ? new Date(arr.at) : null;
+      const depTime = atDep ? atDep.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
+      const arrTime = atArr ? atArr.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
+      const carrierName = carriers[seg.carrierCode] || seg.carrierCode;
+      const flightNum = seg.number ? ` ${seg.number}` : '';
+      lines.push(`${legLabel}${carrierName}${flightNum}  ${dep.iataCode || '?'} ${depTime} → ${arr.iataCode || '?'} ${arrTime}`);
+    });
+  });
+  return lines.join('\n');
+}
+
+// Amadeus Flight Create Orders: book the offer with given travelers. Returns { success, bookingRef, paymentUrl, error }.
+async function amadeusCreateFlightOrder(flightOffer, travelers) {
+  const token = await getAmadeusToken();
+  if (!token) return { success: false, error: 'Amadeus not configured.' };
+  const body = {
+    data: {
+      type: 'flight-order',
+      flightOffers: [flightOffer],
+      travelers: travelers.map((t, i) => ({
+        id: String(i + 1),
+        dateOfBirth: t.dateOfBirth || '1990-01-01',
+        name: { firstName: (t.firstName || 'PASSENGER').trim(), lastName: (t.lastName || 'PASSENGER').trim() },
+      })),
+    },
+  };
+  try {
+    const res = await fetch('https://test.api.amadeus.com/v1/booking/flight-orders', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/vnd.amadeus+json',
+        Accept: 'application/vnd.amadeus+json',
+      },
+      body: JSON.stringify(body),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const errMsg = json.errors?.[0]?.detail || json.errors?.[0]?.title || res.statusText || 'Booking failed';
+      console.warn('Amadeus Flight Create Order failed:', res.status, errMsg);
+      return { success: false, error: errMsg };
+    }
+    const data = json.data || {};
+    return {
+      success: true,
+      bookingRef: data.id || data.bookingId,
+      paymentUrl: data.paymentUrl || data.payment?.redirectUrl,
+      confirmation: data.associatedRecords?.[0]?.reference,
+    };
+  } catch (e) {
+    console.warn('Amadeus Flight Create Order error:', e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+/** Detect "confirm buy" / "yes book" for price-monitor flight booking (distinct from general Henry confirm). */
+function parseHenryConfirmBuy(body) {
+  if (!body || typeof body !== 'string') return false;
+  const lower = body.toLowerCase().trim();
+  return /\b(confirm\s+buy|yes\s+book|book\s+it|confirm\s+book|buy\s+now)\b/i.test(lower) || /^(\s*(yes|confirm|book)\s*)$/i.test(lower);
+}
+
+/** Attempt to book the pending flight (from last "recommend buy" alert). Uses Amadeus Create Order + trip passengers. */
+async function tryHenryPriceMonitorConfirmBuy() {
+  const pending = loadHenryPendingFlightBooking();
+  if (!pending || !pending.rawOffer || !pending.trip) {
+    return { ok: false, message: 'No pending flight to book. Wait for a "Buy now" price alert, then reply "Confirm buy".' };
+  }
+  const trip = pending.trip;
+  const passengers = trip.passengers || [];
+  const needed = Math.max(1, trip.travelers || 1);
+  if (passengers.length < needed) {
+    return {
+      ok: false,
+      message: `This trip requires ${needed} passenger(s). Add names (and optional date of birth) in Config → Henry → Trips → Passengers for trip ${trip.origin || '?'} → ${trip.destination}, then reply "Confirm buy" again.`,
+    };
+  }
+  const travelers = passengers.slice(0, needed).map((p) => ({
+    firstName: p.firstName || 'Passenger',
+    lastName: p.lastName || 'Passenger',
+    dateOfBirth: p.dateOfBirth || null,
+  }));
+  const result = await amadeusCreateFlightOrder(pending.rawOffer, travelers);
+  if (!result.success) {
+    return { ok: false, message: `Booking failed: ${result.error}. Please book manually using the link in your price alert.` };
+  }
+  saveHenryPendingFlightBooking(null);
+  let msg = `✅ Henry: Flight booking created. Reference: ${result.bookingRef || 'N/A'}.`;
+  if (result.paymentUrl) msg += ` Complete payment here: ${result.paymentUrl}`;
+  else msg += ' Complete payment via the airline or the link in your price alert.';
+  return { ok: true, message: msg };
+}
+
 // Fetch current lowest price: Amadeus when credentials set, else mock
 async function fetchCurrentPriceForTrip(trip) {
   const amadeus = await fetchAmadeusFlightOffers(trip);
-  if (amadeus) return { ...amadeus, fetchedAt: new Date().toISOString() };
+  if (amadeus) {
+    const itineraryDetail = formatFlightOfferItinerary(amadeus.rawOffer, amadeus.dictionaries);
+    return {
+      price: amadeus.price,
+      currency: amadeus.currency,
+      fetchedAt: new Date().toISOString(),
+      itineraryDetail: itineraryDetail || null,
+      rawOffer: amadeus.rawOffer,
+      dictionaries: amadeus.dictionaries || {},
+    };
+  }
   const key = `${trip.origin || 'ANY'}-${trip.destination}-${trip.startDate}-${trip.cabinClass || 'ECONOMY'}`;
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
   const base = 200 + (h % 600);
   const dayVar = (new Date().getDate() % 7) * 15;
   const price = Math.round(base + dayVar + (Math.random() * 40 - 20));
-  return { price, currency: trip.currency || 'USD', fetchedAt: new Date().toISOString() };
+  return { price, currency: trip.currency || 'USD', fetchedAt: new Date().toISOString(), itineraryDetail: null, rawOffer: null, dictionaries: {} };
 }
 
 // Ask AI: given current price and history, recommend buy or wait
@@ -3539,7 +5776,7 @@ async function runHenryPriceMonitorJob() {
   const adminWhatsApp = getAdminWhatsAppNumber();
   for (const trip of trips) {
     try {
-      const { price, currency, fetchedAt } = await fetchCurrentPriceForTrip(trip);
+      const { price, currency, fetchedAt, itineraryDetail, rawOffer, dictionaries } = await fetchCurrentPriceForTrip(trip);
       const hist = data.priceHistory[trip.id] || [];
       const rec = await getPriceRecommendation(trip, price, hist);
       hist.push({
@@ -3552,14 +5789,75 @@ async function runHenryPriceMonitorJob() {
       saveHenryPriceMonitor(data);
       if (rec.recommendBuy && (adminEmail || adminWhatsApp)) {
         const route = trip.origin ? `${trip.origin} → ${trip.destination}` : trip.destination;
-        const msg = `✈️ Henry – Flight price alert: ${route}\n\nCurrent lowest: ${price} ${currency}\nRecommendation: Buy now.\nReason: ${rec.reason}\nConfidence: ${rec.confidence}\n\nCheck your preferred booking site to lock in this price.`;
-        if (adminEmail && (useSendGrid || emailTransporter)) {
-          await sendEmailReply(adminEmail, `Henry – Cheapest ticket alert: ${route}`, msg);
-          console.log('📧 Henry price alert sent by email to', adminEmail);
-        }
-        if (adminWhatsApp && twilioClient) {
-          await sendWhatsApp(msg, false, `whatsapp:${adminWhatsApp.replace(/^\+/, '').replace(/^whatsapp:/i, '')}`);
-          console.log('📱 Henry price alert sent by WhatsApp');
+        const autoBookAndPay = cfg?.travelAgent?.henryAutoBookAndPay === true;
+        const pmId = getHenryAutoPaymentMethod();
+        const passengers = trip.passengers || [];
+        const needed = Math.max(1, trip.travelers || 1);
+        const hasEnoughPassengers = passengers.length >= needed;
+        const canAutoBook = autoBookAndPay && pmId && rawOffer && dictionaries && hasEnoughPassengers;
+
+        if (canAutoBook) {
+          const travelers = passengers.slice(0, needed).map((p) => ({
+            firstName: p.firstName || 'Passenger',
+            lastName: p.lastName || 'Passenger',
+            dateOfBirth: p.dateOfBirth || null,
+          }));
+          const bookResult = await amadeusCreateFlightOrder(rawOffer, travelers);
+          if (bookResult.success) {
+            const amountCents = Math.round(parseFloat(String(price)) * 100);
+            const chargeResult = await chargeStripePaymentMethod(pmId, amountCents, (currency || 'USD').toLowerCase());
+            if (chargeResult.success) {
+              saveHenryPendingFlightBooking(null);
+              let autoMsg = `✅ Henry – Booked and paid: ${route}\n\nBooking reference: ${bookResult.bookingRef || 'N/A'}\nAmount charged: ${price} ${currency}\nReason: ${rec.reason}`;
+              if (itineraryDetail && itineraryDetail.trim()) autoMsg += `\n\n--- Itinerary ---\n${itineraryDetail.trim()}`;
+              if (adminEmail && (useSendGrid || emailTransporter)) {
+                await sendEmailReply(adminEmail, `Henry – Booked and paid: ${route}`, autoMsg);
+                console.log('📧 Henry auto book+pay: email sent');
+              }
+              if (adminWhatsApp && twilioClient) {
+                await sendWhatsApp(autoMsg, false, `whatsapp:${adminWhatsApp.replace(/^\+/, '').replace(/^whatsapp:/i, '')}`);
+                console.log('📱 Henry auto book+pay: WhatsApp sent');
+              }
+            } else {
+              saveHenryPendingFlightBooking({ tripId: trip.id, trip: { ...trip, passengers }, rawOffer, dictionaries, price, currency, at: fetchedAt });
+              let failMsg = `✈️ Henry – Flight booked but payment failed: ${route}\n\nBooking reference: ${bookResult.bookingRef || 'N/A'}. Charge error: ${chargeResult.error}. Complete payment manually via the link in your price alert or Config → Henry → Confirm buy.`;
+              if (adminEmail && (useSendGrid || emailTransporter)) await sendEmailReply(adminEmail, `Henry – Payment failed: ${route}`, failMsg);
+              if (adminWhatsApp && twilioClient) await sendWhatsApp(failMsg, false, `whatsapp:${adminWhatsApp.replace(/^\+/, '').replace(/^whatsapp:/i, '')}`);
+            }
+          } else {
+            saveHenryPendingFlightBooking({ tripId: trip.id, trip: { ...trip, passengers }, rawOffer, dictionaries, price, currency, at: fetchedAt });
+            let bookFailMsg = `✈️ Henry – Flight price alert: ${route}\n\nCurrent lowest: ${price} ${currency}\nRecommendation: Buy now.\nReason: ${rec.reason}\nAuto-book failed: ${bookResult.error}. Reply "Confirm buy" or use Config → Henry to book manually.`;
+            if (itineraryDetail && itineraryDetail.trim()) bookFailMsg += `\n\n--- Flight / itinerary ---\n${itineraryDetail.trim()}\n---`;
+            if (adminEmail && (useSendGrid || emailTransporter)) await sendEmailReply(adminEmail, `Henry – Cheapest ticket alert: ${route}`, bookFailMsg);
+            if (adminWhatsApp && twilioClient) await sendWhatsApp(bookFailMsg, false, `whatsapp:${adminWhatsApp.replace(/^\+/, '').replace(/^whatsapp:/i, '')}`);
+          }
+        } else {
+          if (rawOffer && dictionaries) {
+            saveHenryPendingFlightBooking({
+              tripId: trip.id,
+              trip: { ...trip, passengers: trip.passengers || [] },
+              rawOffer,
+              dictionaries,
+              price,
+              currency,
+              at: fetchedAt,
+            });
+          }
+          let msg = `✈️ Henry – Flight price alert: ${route}\n\nCurrent lowest: ${price} ${currency}\nRecommendation: Buy now.\nReason: ${rec.reason}\nConfidence: ${rec.confidence}`;
+          if (itineraryDetail && itineraryDetail.trim()) {
+            msg += `\n\n--- Flight / itinerary (lowest price option) ---\n${itineraryDetail.trim()}\n---`;
+          }
+          if (autoBookAndPay && !pmId) msg += '\n\nAuto-book is on but no payment method is set. Add one in Config → Henry → Payment method for auto-book. Reply "Confirm buy" or use Config to book manually.';
+          else if (autoBookAndPay && !hasEnoughPassengers) msg += `\n\nAuto-book is on but this trip needs ${needed} passenger(s). Add them in Config → Henry → Trips → Passengers. Reply "Confirm buy" to book manually.`;
+          else msg += '\n\nReply "Confirm buy" or "Yes book" to book now, or use Config → Henry → Confirm buy (book pending flight) to book manually. Payment via link after booking.';
+          if (adminEmail && (useSendGrid || emailTransporter)) {
+            await sendEmailReply(adminEmail, `Henry – Cheapest ticket alert: ${route}`, msg);
+            console.log('📧 Henry price alert sent by email to', adminEmail);
+          }
+          if (adminWhatsApp && twilioClient) {
+            await sendWhatsApp(msg, false, `whatsapp:${adminWhatsApp.replace(/^\+/, '').replace(/^whatsapp:/i, '')}`);
+            console.log('📱 Henry price alert sent by WhatsApp');
+          }
         }
       }
     } catch (e) {
@@ -3602,6 +5900,7 @@ app.post('/api/travel/price-monitor/trips', express.json(), (req, res) => {
       cabinClass: (cabinClass && String(cabinClass).trim()) || 'ECONOMY',
       currency: (currency && String(currency).trim()) || 'USD',
       enabled: true,
+      passengers: [],
       createdAt: new Date().toISOString(),
     };
     data.monitoredTrips.push(trip);
@@ -3613,15 +5912,22 @@ app.post('/api/travel/price-monitor/trips', express.json(), (req, res) => {
   }
 });
 
-// PATCH enable/disable a trip
+// PATCH update a trip (enable/disable and/or origin, destination, dates, travelers, cabinClass, currency)
 app.patch('/api/travel/price-monitor/trips/:id', express.json(), (req, res) => {
   try {
     const { id } = req.params;
-    const { enabled } = req.body || {};
+    const { enabled, origin, destination, startDate, endDate, travelers, cabinClass, currency } = req.body || {};
     const data = loadHenryPriceMonitor();
     const t = data.monitoredTrips.find((x) => x.id === id);
     if (!t) return res.status(404).json({ error: 'Trip not found.' });
     if (typeof enabled === 'boolean') t.enabled = enabled;
+    if (typeof origin === 'string') t.origin = origin.trim();
+    if (typeof destination === 'string' && destination.trim()) t.destination = destination.trim();
+    if (typeof startDate === 'string') t.startDate = startDate.trim();
+    if (typeof endDate === 'string') t.endDate = endDate.trim();
+    if (travelers !== undefined) t.travelers = Math.max(1, parseInt(travelers, 10) || 1);
+    if (typeof cabinClass === 'string' && cabinClass.trim()) t.cabinClass = cabinClass.trim();
+    if (typeof currency === 'string' && currency.trim()) t.currency = currency.trim();
     saveHenryPriceMonitor(data);
     res.json({ trip: t });
   } catch (e) {
@@ -3636,6 +5942,81 @@ app.delete('/api/travel/price-monitor/trips/:id', (req, res) => {
     const data = loadHenryPriceMonitor();
     data.monitoredTrips = data.monitoredTrips.filter((x) => x.id !== id);
     if (data.priceHistory[id]) delete data.priceHistory[id];
+    saveHenryPriceMonitor(data);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Passengers for a monitored trip (for booking: names/details used when confirming buy)
+app.get('/api/travel/price-monitor/trips/:id/passengers', (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = loadHenryPriceMonitor();
+    const t = data.monitoredTrips.find((x) => x.id === id);
+    if (!t) return res.status(404).json({ error: 'Trip not found.' });
+    res.json({ tripId: id, passengers: t.passengers || [] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/travel/price-monitor/trips/:id/passengers', express.json(), (req, res) => {
+  try {
+    const { id } = req.params;
+    const { firstName, lastName, dateOfBirth } = req.body || {};
+    if (!firstName || !lastName || typeof firstName !== 'string' || typeof lastName !== 'string') {
+      return res.status(400).json({ error: 'firstName and lastName are required.' });
+    }
+    const data = loadHenryPriceMonitor();
+    const t = data.monitoredTrips.find((x) => x.id === id);
+    if (!t) return res.status(404).json({ error: 'Trip not found.' });
+    if (!t.passengers) t.passengers = [];
+    const pid = `pax_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const pax = {
+      id: pid,
+      firstName: String(firstName).trim(),
+      lastName: String(lastName).trim(),
+      dateOfBirth: dateOfBirth && /^\d{4}-\d{2}-\d{2}$/.test(String(dateOfBirth).trim()) ? String(dateOfBirth).trim() : null,
+    };
+    t.passengers.push(pax);
+    saveHenryPriceMonitor(data);
+    res.status(201).json({ passenger: pax });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/travel/price-monitor/trips/:id/passengers/:pid', express.json(), (req, res) => {
+  try {
+    const { id, pid } = req.params;
+    const { firstName, lastName, dateOfBirth } = req.body || {};
+    const data = loadHenryPriceMonitor();
+    const t = data.monitoredTrips.find((x) => x.id === id);
+    if (!t) return res.status(404).json({ error: 'Trip not found.' });
+    const p = (t.passengers || []).find((x) => x.id === pid);
+    if (!p) return res.status(404).json({ error: 'Passenger not found.' });
+    if (typeof firstName === 'string' && firstName.trim()) p.firstName = firstName.trim();
+    if (typeof lastName === 'string' && lastName.trim()) p.lastName = lastName.trim();
+    if (dateOfBirth !== undefined) p.dateOfBirth = dateOfBirth && /^\d{4}-\d{2}-\d{2}$/.test(String(dateOfBirth).trim()) ? String(dateOfBirth).trim() : null;
+    saveHenryPriceMonitor(data);
+    res.json({ passenger: p });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/travel/price-monitor/trips/:id/passengers/:pid', (req, res) => {
+  try {
+    const { id, pid } = req.params;
+    const data = loadHenryPriceMonitor();
+    const t = data.monitoredTrips.find((x) => x.id === id);
+    if (!t) return res.status(404).json({ error: 'Trip not found.' });
+    if (!t.passengers) t.passengers = [];
+    const before = t.passengers.length;
+    t.passengers = t.passengers.filter((x) => x.id !== pid);
+    if (t.passengers.length === before) return res.status(404).json({ error: 'Passenger not found.' });
     saveHenryPriceMonitor(data);
     res.json({ success: true });
   } catch (e) {
@@ -3668,6 +6049,44 @@ app.post('/api/travel/price-monitor/run-now', async (req, res) => {
   } catch (e) {
     console.error('Henry price monitor run-now error:', e);
     res.status(500).json({ error: e.message });
+  }
+});
+
+// POST confirm buy: book the pending flight (from last recommend-buy alert). Requires passengers to be set for the trip. Use when auto-book is off or for manual booking.
+app.post('/api/travel/price-monitor/confirm-buy', async (req, res) => {
+  try {
+    const result = await tryHenryPriceMonitorConfirmBuy();
+    if (result.ok) {
+      res.json({ success: true, message: result.message });
+    } else {
+      res.status(400).json({ success: false, message: result.message });
+    }
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message || 'Confirm buy failed.' });
+  }
+});
+
+// GET whether a payment method is stored for Henry auto-book
+app.get('/api/travel/price-monitor/payment-method', (req, res) => {
+  try {
+    const has = !!getHenryAutoPaymentMethod();
+    res.json({ hasPaymentMethod: has });
+  } catch (e) {
+    res.status(500).json({ hasPaymentMethod: false, error: e.message });
+  }
+});
+
+// POST set payment method for Henry auto-book (Stripe Payment Method ID, e.g. pm_xxx). Send from client after Stripe Elements / createPaymentMethod.
+app.post('/api/travel/price-monitor/payment-method', express.json(), (req, res) => {
+  try {
+    const { paymentMethodId } = req.body || {};
+    if (!paymentMethodId || typeof paymentMethodId !== 'string' || !paymentMethodId.trim()) {
+      return res.status(400).json({ error: 'paymentMethodId is required (Stripe Payment Method ID, e.g. pm_xxx).' });
+    }
+    setHenryAutoPaymentMethod(paymentMethodId.trim());
+    res.json({ success: true, message: 'Payment method saved for Henry auto-book.' });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 
@@ -4511,6 +6930,19 @@ function startMonitoring(boundPort) {
     console.log('📋 Meeting transcription: will process transcripts every 30 min (lookback', hoursLookback, 'h)');
   }
 
+  // Henry hard-to-get restaurant alerts: every minute, at open time ET send alert so user can book immediately
+  cron.schedule('* * * * *', async () => {
+    try {
+      await runHenryHardToGetRestaurantAlerts();
+    } catch (e) {
+      console.warn('Henry hard-to-get restaurant cron error:', e.message);
+    }
+  });
+  const hardToGetCount = (cfg?.travelAgent?.hardToGetRestaurants || []).length;
+  if (hardToGetCount > 0) {
+    console.log(`🍽 Henry: hard-to-get restaurant alerts enabled for ${hardToGetCount} restaurant(s); will alert at configured day/time ET.`);
+  }
+
   // Henry reminder calls: check every 15 min for upcoming travel/restaurant/appointment reminders
   cron.schedule('*/15 * * * *', async () => {
     const c = loadConfig();
@@ -4563,8 +6995,16 @@ function startMonitoring(boundPort) {
         const result = await runStarkRecommendations({ sendHotAlerts: true });
         const adminEmail = getAdminEmail();
         const adminWhatsApp = getAdminWhatsAppNumber();
-        const lines = (result.recommendations || []).map((r) => `• ${r.symbol} (${r.name}): ${r.action} – ${r.reason || ''}${r.hot ? ' [HOT]' : ''}`);
-        const body = `StarkNavigator – Daily recommendations\n\n${lines.length ? lines.join('\n') : 'No recommendations today.'}`;
+        const bestBetLine = result.bestBet && result.bestBetSummary ? `⭐ Best bet: ${result.bestBet} – ${result.bestBetSummary}\n\n` : '';
+        const recs = result.recommendations || [];
+        const lines = recs.map((r, i) => {
+          const num = recs.length > 1 ? `${i + 1}. ` : '• ';
+          let line = `${num}${r.symbol} (${r.name}): ${r.action} – ${r.reason || ''}${r.hot ? ' [BEST BET]' : ''}`;
+          if (r.priceGuidance) line += ` | ${r.priceGuidance}`;
+          else if (r.buyAtOrBelow != null || r.avoidAbove != null) line += ` | Buy ≤${r.buyAtOrBelow ?? '?'}${r.avoidAbove != null ? `, avoid above ${r.avoidAbove}` : ''}`;
+          return line;
+        });
+        const body = `StarkNavigator – Daily recommendations\n\n${bestBetLine}${lines.length ? lines.join('\n') : 'No recommendations today.'}`;
         if (adminEmail && (useSendGrid || emailTransporter)) await sendEmailReply(adminEmail, 'StarkNavigator – Daily recommendations', body);
         if (adminWhatsApp && twilioClient && body.length <= 1400) {
           try { await sendWhatsApp(body, false, `whatsapp:${String(adminWhatsApp).replace(/^\+/, '').replace(/^whatsapp:/i, '')}`); } catch (_) {}
@@ -4597,6 +7037,7 @@ function startServer() {
       console.log(`🔍 Health check: http://localhost:${port}/health\n`);
 
       startMonitoring(port);
+      scheduleBeerMulePoll();
 
       // Only send startup WhatsApp when on primary port and not started by fix/restart scripts (they set SKIP_STARTUP_WHATSAPP=1)
       const primaryPort = parseInt(process.env.BACKEND_PORT, 10) || 3000;
